@@ -1,0 +1,1256 @@
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1
+
+
+    1	                                	TITLE	VDISK
+    2	                                	.Z80
+    3	  0000'                         	aseg
+    4	                                
+    5	                                
+    6	                                ;			V D I S K . M A C
+    7	                                
+    8	                                	SUBTTL	Vdisk: [History]
+    9	                                	PAGE	88
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-1
+Vdisk: [History]
+
+   10	                                
+   11	                                ;------------------------------------------------------------- Vdisk.mac ------
+   12	                                ;
+   13	                                ;	VDISK.MAC
+   14	                                ;
+   15	                                ;	Bondwell 12  Virtual Disk
+   16	                                ;
+   17	                                ;
+   18	                                ;	Copyright (C)	1987	M.J. Moene
+   19	                                ;				1098 EC Amsterdam
+   20	                                ;
+   21	                                ;	Program derived from:
+   22	                                ;				Databus, februari 1985
+   23	                                ;				Meer performance met uitbreiding opslageenheden.
+   24	                                ;				Het aanpassen van CP/M aan een opslageenheid
+   25	                                ;				E.L. van 't Hoff
+   26	                                ;
+   27	                                ;
+   28	                                ;	With this program you can install a virtual disk (RAM disk) on your
+   29	                                ;	Bondwell 12/14 computer.
+   30	                                ;	The virtual disk (VD) uses the additional memory banks 2 & 3 of the
+   31	                                ;	standard Bondwell 12/14 computer.  Optionally banks 4..9 can be added
+   32	                                ;	with a small hardware extension.
+   33	                                ;	Virtual Disk space (Directory + data) ranges from 32 kbyte for a single
+   34	                                ;	bank to 256 kbyte for a fully implemented virtual disk. 
+   35	                                ;
+   36	                                ;
+   37	                                ;	Use:
+   38	                                ;		D>vdisk [-f]	[]: optional
+   39	                                ;
+   40	                                ; 		vdisk -f	vdisk format & initialize virtual-drive routines
+   41	                                ;		vdisk		initialize virtual-drive routines only
+   42	                                ;
+   43	                                ;	Note:
+   44	                                ;
+   45	                                ;	Installing the virtual disk after a cold boot must be done with
+   46	                                ;	the '-f' option.
+   47	                                ;
+   48	                                ;
+   49	                                ;	Version         1.8	Errors in comment for modification of 
+   50	                                ;	Date	 1988-03-04	computerboard removed (wire cuts, new wires).
+   51	                                ;
+   52	                                ;	Version		1.7	Old BIOS jump-table in vdbios removed,
+   53	                                ;	Date	 1987-02-19	savstk routine shrinked. 
+   54	                                ;                               All done to use less space.
+   55	                                ;
+   56	                                ;	Version		1.6	Read and write routines use a local stack now,
+   57	                                ;	Date	 1987-10-14	so programs are allowed to call these routines
+   58	                                ;				directly; version 1.5 and before would crash if
+   59	                                ;				a program called the read- or write-routine and
+   60	                                ;				the stackpointer pointed into memory bank 1,
+   61	                                ;				(sp --> address <$8000).
+   62	                                ;
+   63	                                ;	Version		1.5	Modification description corrected.
+   64	                                ;	Date	 1987-02-15	
+   65	                                ;
+   66	                                ;	Version		1.4	Directory buffer now shared with A: & B:
+   67	                                ;	Date	 1987-02-09	  drives. Program doesn't overwrite function
+   68	                                ;				  keys anymore ($f6bf..f7b3).
+   69	                                ;
+   70	                                ;	Version		1.3	Hardware extension extended to give a 
+   71	                                ;	Date	 1987-02-02	refreshed A7.
+   72	                                ;
+   73	                                ;	Version:	1.2	Vdisk without '-F' option: program ends with
+   74	                                ;	Date:	 1987-01-20	  warmboot to correctly init. C: drive and
+   75	                                ;				  make directory visible again.
+   76	                                ;
+   77	                                ;	Version:	1.1	Warmboot from VD now logs in on VD again.
+   78	                                ;	Date:	 1987-01-20
+   79	                                ;
+   80	                                ;	Version:	1.0	
+   81	                                ;	Date:	 1987-01-20
+   82	                                ;
+   83	                                ;	Version:	0.0	Setup.
+   84	                                ;	Date:	 1987-01-16
+   85	                                ;
+   86	                                	SUBTTL	Vdisk: [Hardware extension]
+   87	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-2
+Vdisk: [Hardware extension]
+
+   88	                                
+   89	                                ;---------------------------------------------------- Hardware extension ------
+   90	                                ;
+   91	                                ;	Bondwell 12/14 Bank select and refresh
+   92	                                ;	
+   93	                                ;	Modifications to the Bondwell 12/14 Microprocessor board
+   94	                                ;
+   95	                                ;	To implement the memory extension with xx256 memory, instead of
+   96	                                ;	the planned extension with xx64 memory chips, a couple of 
+   97	                                ;	modifications has to be made to the Bondwell 12/14 main board.
+   98	                                ;	The modifications concern the generation of row address A7 with 
+   99	                                ;	refresh and row address A8 and column address A16 and a virtual
+  100	                                ;	disk active signal capable of driving a LED.  The generation of
+  101	                                ;	the extra signals is done by the 'Bank select & refresh' circuit.
+  102	                                ;
+  103	                                ;	First some wires on the main board have to be changed.  These 
+  104	                                ;	       modifications are described below.
+  105	                                ;	Second the wires from the 'Bank select & refresh' extension
+  106	                                ;	       printed circuit board (10 pin Molex connector) are to be 
+  107	                                ;	       connected to the points as described with the pcb layout.
+  108	                                ;
+  109	                                ;	
+  110	                                ;	Wire cuts
+  111	                                ;	---------
+  112	                                ;
+  113	                                ;	Signal		Cut between
+  114	                                ;
+  115	                                ;	Component side
+  116	                                ;	CAS		IC52, pin 8  (74LS32)  --  IC53, pin 1  (xx256)
+  117	                                ;	A8		IC60, pin 1  (xx256)   --  IC61, pin 15 ( 4164)
+  118	                                ;	A7		IC60, pin 9  (xx256)   --  IC61, pin 9  ( 4164)
+  119	                                ;
+  120	                                ;	Solder side
+  121	                                ;	A7		IC59, pin 9  (xx256)   --  IC44, pin 9  (74LS157)
+  122	                                ;
+  123	                                ;
+  124	                                ;	New wires
+  125	                                ;	---------
+  126	                                ;	
+  127	                                ;	Signal		Wire between
+  128	                                ;
+  129	                                ;	A7		IC44, pin 9  (74LS157) --  IC61, pin 9  (4164)
+  130	                                ;	CAS		IC52, pin 8  (74LS32)  --  IC61, pin15  (4164)
+  131	                                ;
+  132	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-3
+Vdisk: [Hardware extension]
+
+  133	                                
+  134	                                ;	Bondwell 12/14 Bank select and refresh
+  135	                                ;
+  136	                                ;	Circuit diagram
+  137	                                ;
+  138	                                ;
+  139	                                ;	** Generation of A8
+  140	                                ;
+  141	                                ;
+  142	                                ;	   R/Cn    O-----------------------+
+  143	                                ;					   |
+  144	                                ;          O2      O---------+             |
+  145	                                ;	                     |E            |S
+  146	                                ;	                  +-----+       +-----+                       
+  147	                                ;	               D1 |     | Q1  1A|     |                       
+  148	                                ;	   O1      O------|     |-------|     |1Y                     
+  149	                                ;	                  |LS174|       |LS158|O-------------------O A8 (xx256)
+  150	                                ;	   O0      O------|     |-------|     |                       
+  151	                                ;	               D2 |     | Q2  1B|     |                       
+  152	                                ;	                  +-----+       +-----+	                
+  153	                                ;
+  154	                                ;
+  155	                                ;	** Generation of A7 with refresh
+  156	                                ;
+  157	                                ;	                  +-----+       +-----------------+
+  158	                                ;          MRQn    O------|     |    CLK| -               |                       
+  159	                                ;	                  |LS02 |O-+----|  V    HEF4040   |                       
+  160	                                ;          RFRn    O-+----|     |  |    |   -             |                       
+  161	                                ;	             |    +-----+  |    +-----------------+                       
+  162	                                ;	             |             |      |O7          |MR                        
+  163	                                ;	             |  ^          |      |           ---                         
+  164	                                ;	             |  |    4k7   |      |                                         
+  165	                                ;	             |  +---====---+      |          LS151                        
+  166	                                ;	             |                    |         +-----+                       
+  167	                                ;	             |                    |   A7org |     |                       
+  168	                                ;                    |                    |  O------|D3   |                       
+  169	                                ;	             |                    |   A7new |     |                       
+  170	                                ;	             |                    +---------|D2   |Y                      
+  171	                                ;	             |                        A15   |     |--------O A7mem (xx256)
+  172	                                ;	             |                       O---+--|D1   |                       
+  173	                                ;	             |                           |  |     |                       
+  174	                                ;	             |                           +--|D0   |---+ Strobe            
+  175	                                ;	             |                              |     |---+ C                 
+  176	                                ;	             |                              +-----+   |                   
+  177	                                ;	             |                               |A |B   ---                  
+  178	                                ;	             |                               |  |                         
+  179	                                ;	             +-------------------------------+  |         
+  180	                                ;					                |
+  181	                                ;	  R/Cn     O------------------------------------+
+  182	                                ;
+  183	                                ;
+  184	                                ;	LS151                     
+  185	                                ;
+  186	                                ;	C B A  n  Selected (A7mem)
+  187	                                ;	--------------------------
+  188	                                ;	0 0 0  0  A15 (Column)
+  189	                                ;	0 0 1  1  A15 (Column)
+  190	                                ;	0 1 0  2  A7new  (row)
+  191	                                ;	0 1 1  3  A7org  (row)
+  192	                                ;
+  193	                                ;
+  194	                                ;	** Virtual disk activity indication
+  195	                                ;
+  196	                                ;	                  +-----+       +-----------------+
+  197	                                ;		      ----|     |       |     555         |  330E
+  198	                                ;	   O2      O-+    |LS02 |O------|T               O|--====--O LED
+  199	                                ;	              ----|     |       |        D Thr    |        O
+  200	                                ;	                  +-----+    ^  +-----------------+        |
+  201	                                ;	                             |     100k  | | 100nF         |
+  202	                                ;	                             +-----====--+-+--U---+        |
+  203	                                ;	                                                  |        |
+  204	                                ;	                                                 ---      ---
+  205	                                ;
+  206	                                ;
+  207	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-4
+Vdisk: [Hardware extension]
+
+  208	                                
+  209	                                ;	Bondwell 12/14 Bank select and refresh
+  210	                                ;
+  211	                                ;	Printed circuit board layout
+  212	                                ;
+  213	                                ;
+  214	                                ;	         100k           330E
+  215	                                ;	  100nF    100nF          4k7
+  216	                                ;	+---------------------------------------+
+  217	                                ;	| .     || | +-----+    |||           . |
+  218	                                ;	|       |U = > 555 |    |UU  : LED      |
+  219	                                ;	|       || | +-----+    |||             |
+  220	                                ;	|  		                       	|
+  221	                                ;	|   |   +----------+	+----------+	|
+  222	                                ;	|   =   >  74LS158 |	>  HEF4040 |	|
+  223	                                ;	|   |   +----------+	+----------+	|
+  224	                                ;	|					|
+  225	                                ;	|+5 .   +----------+	+--------+	|
+  226	                                ;	| 0 .   >  74LS174 |	>  74LS02|	|
+  227	                                ;	|       +----------+	+--------+	|
+  228	                                ;	|					|
+  229	                                ;	|	 ..........	+----------+	|
+  230	                                ;	|	 1	  10	>  74LS151 |	|
+  231	                                ;	|	            	+----------+	|
+  232	                                ;	| .				      .	|
+  233	                                ;	+---------------------------------------+
+  234	                                ;		 ||||||||||
+  235	                                ;		 ||||||||||____ MRQn
+  236	                                ;		 |||||||||_____ RFRn
+  237	                                ;		 ||||||||______ A15
+  238	                                ;		 |||||||_______ A8
+  239	                                ;		 ||||||________ A7org
+  240	                                ;		 |||||_________ A7mem
+  241	                                ;		 ||||__________ O2
+  242	                                ;		 |||___________ O1
+  243	                                ;		 ||____________ O0
+  244	                                ;		 |_____________ R/Cn
+  245	                                ;
+  246	                                ;
+  247	                                ;	10 pin Molex
+  248	                                ;	------------------------------------------
+  249	                                ;	  1.	brown	R/Cn    (IC44, LS157, p1 )
+  250	                                ;	  2.    red	O0	(IC18, LS259, p4 )
+  251	                                ;	  3.    orange	O1	(IC18, LS259, p5 )
+  252	                                ;	  4.    yellow	O2	(IC18, LS259, p6 )
+  253	                                ;	  5.    green	A7mem	(IC53, xx256, p9 )
+  254	                                ;	  6.    blue	A7org	(IC35,   Z80, p37)
+  255	                                ;	  7.    violet	A8	(IC53, xx256, p1 )
+  256	                                ;	  8.    grey	A15	(IC44, LS157, p11)
+  257	                                ;	  9.    white	RFRn	(IC35,   Z80, p28)
+  258	                                ;	 10.    black	MRQn	(=R/Cn)
+  259	                                ;
+  260	                                
+  261	                                	SUBTTL	VDisk: [Installation.global-constants]
+  262	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-5
+VDisk: [Installation.global-constants]
+
+  263	                                
+  264	                                ;------------------------------------------------------ Global constants ------
+  265	                                ;
+  266	                                ;
+  267	                                
+  268	  0001                          true	equ	1			; boolean true
+  269	  0000                          false	equ	0			; boolean false
+  270	                                
+  271	  0000                          capson	equ	false			; caps-lock doesn't indicate
+  272	                                					;   virtual-disk activity
+  273	                                
+  274	  0002                          vd	equ	'C'-'A'			; code for drive 'C:'
+  275	  0100                          vdsize	equ	256			; 256 k directory + data
+  276	  0002                          vdboff	equ	2			; bank offset (first vdisk bank)
+  277	  F500                          vdaddr	equ	0f500H			; Uninitialized memory used in BIOS 
+  278	                                
+  279	  0020                          bnksiz	equ	32			; Bondwell 12 Bank size: 32 k
+  280	  0080                          secsiz	equ	128			; Sector size
+  281	                                
+  282	  D403                          ccp	equ	0d403H			; CCP entry
+  283	  F2CD                          dirbuf	equ	0f2cdH			; directory buffer (also drive A: & B:)
+  284	  F800                          stack	equ	0f800H			; Stack for this program
+  285	                                
+  286	  0005                          bdos	equ	5			; Bdos entry
+  287	  0002                          pchr	equ	2			; Bdos print character function
+  288	  0009                          pstr	equ	9			; Bdos print sting function
+  289	                                
+  290	  000D                          cr	equ	0dH			; carriage return code
+  291	  000A                          lf	equ	0aH			; linefeed code
+  292	                                
+  293	                                
+  294	                                IF1
+  295	                                	.printx	Generating Virtual-disk initialization program.
+  296	                                	.printx	System: Bondwell 12/14.
+  297	                                	.printx	Operating system: CP/M 2.2.
+  298	                                	IF capson EQ true
+  299	                                	.printx	Caps-lock indicates V-disk activity (capson equ true).
+  300	                                	ELSE
+  301	                                	.printx	Caps-lock not used by this program (capson equ false).
+  302	                                	ENDIF
+  303	                                ENDIF
+  304	                                
+  305	                                	SUBTTL	VDisk: [Installation.main-line]
+  306	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-6
+VDisk: [Installation.main-line]
+
+  307	                                
+  308	                                ;------------------------------------------------------------- Main line ------
+  309	                                ;
+  310	                                ;
+  311	                                
+  312	                                	org	100h			; CP/M programs usually start here
+  313	  0100    C3 018A               	jp	start			; Skip opening message
+  314	                                
+  315	                                
+  316	                                ;
+  317	                                ; Copyright
+  318	                                ;
+  319	                                
+  320	  0103    3C 43 6F 70           	db	'<Copyright 1987 M.J. Moene>'
+  321	  0107    79 72 69 67           
+  322	  010B    68 74 20 31           
+  323	  010F    39 38 37 20           
+  324	  0113    4D 2E 4A 2E           
+  325	  0117    20 4D 6F 65           
+  326	  011B    6E 65 3E              
+  327	                                
+  328	                                
+  329	                                ;
+  330	                                ; Opening message
+  331	                                ;
+  332	                                
+  333	  011E    0D 0A                 msg:	db	cr,lf
+  334	  0120    20 20 3C 20           	db	'  < VDISK >',cr,lf,lf
+  335	  0124    56 44 49 53           
+  336	  0128    4B 20 3E 0D           
+  337	  012C    0A 0A                 
+  338	  012E    20 20 42 6F           	db	'  Bondwell 12/14',cr,lf
+  339	  0132    6E 64 77 65           
+  340	  0136    6C 6C 20 31           
+  341	  013A    32 2F 31 34           
+  342	  013E    0D 0A                 
+  343	  0140    20 20 32 35           	db	'  254 k Virtual Disk',cr,lf
+  344	  0144    34 20 6B 20           
+  345	  0148    56 69 72 74           
+  346	  014C    75 61 6C 20           
+  347	  0150    44 69 73 6B           
+  348	  0154    0D 0A                 
+  349	  0156    20 20 36 34           	db	'  64 Directory entries',cr,lf
+  350	  015A    20 44 69 72           
+  351	  015E    65 63 74 6F           
+  352	  0162    72 79 20 65           
+  353	  0166    6E 74 72 69           
+  354	  016A    65 73 0D 0A           
+  355	  016E    20 20 56 65           	db	'  Version 1.8 - 4 mar 1987',cr,'$'
+  356	  0172    72 73 69 6F           
+  357	  0176    6E 20 31 2E           
+  358	  017A    38 20 2D 20           
+  359	  017E    34 20 6D 61           
+  360	  0182    72 20 31 39           
+  361	  0186    38 37 0D 24           
+  362	                                
+  363	  018A    21 0000               start:	ld	hl,0			; save current stackpointer
+  364	  018D    39                    	add	hl,sp
+  365	  018E    22 0219               	ld	(oldsp),hl
+  366	  0191    31 F800               	ld	sp,stack		; define new stack
+  367	                                
+  368	  0194    0E 09                 	ld	c,pstr			; print opening message
+  369	  0196    11 011E               	ld	de,msg
+  370	  0199    CD 0005               	call	bdos
+  371	                                
+  372	                                
+  373	                                ;------------------------------------------------------ Check for option ------
+  374	                                ;
+  375	                                ; Option	vdsk -f		(vdisk format & initialize c-drive routines)
+  376	                                ;		vdsk		(initialize c-drive routines only)
+  377	                                ;
+  378	                                ;		Remark:		Option only usefull if directory isn't
+  379	                                ;				cleared at executing vdsk (without -f).
+  380	                                ;
+  381	                                
+  382	  019C    21 0080               opt:	ld	hl,80H			; Commandline tail: length,char,...
+  383	  019F    7E                    	ld	a,(hl)			; length
+  384	  01A0    FE 00                 	cp	0			; option added?
+  385	  01A2    28 14                 	jr	z,optx			;   no: skip
+  386	  01A4    23                    	inc	hl			;   yes: check for '-F'  (skip space)
+  387	  01A5    23                    	inc	hl
+  388	  01A6    7E                    	ld	a,(hl)
+  389	  01A7    FE 2D                 	cp	'-'
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-7
+VDisk: [Installation.main-line]
+
+  390	  01A9    20 0D                 	jr	nz,optx			; no '-'
+  391	  01AB    23                    	inc	hl
+  392	  01AC    7E                    	ld	a,(hl)
+  393	  01AD    FE 46                 	cp	'F'
+  394	  01AF    20 07                 	jr	nz,optx			; no 'F'
+  395	                                
+  396	  01B1    3E 01                 	ld	a,true			; fopt flag= true
+  397	  01B3    32 021B               	ld	(fopt),a
+  398	                                
+  399	  01B6    18 15                 	jr	movfor			; option is '-F'
+  400	  01B8    18 29                 optx:	jr	movpgm			; no option
+  401	                                	
+  402	                                
+  403	                                ;---------------------------------------------------------------- Format ------
+  404	                                ;
+  405	                                ; Format
+  406	                                ;
+  407	                                ;		Format virtual disk directory
+  408	                                ;
+  409	                                
+  410	  01BA    0A 20 20 46           formsg:	db	lf,'  Formatting ...',cr,'$'
+  411	  01BE    6F 72 6D 61           
+  412	  01C2    74 74 69 6E           
+  413	  01C6    67 20 2E 2E           
+  414	  01CA    2E 0D 24              
+  415	                                
+  416	  01CD    0E 09                 movfor:	ld	c,pstr			; print 'Formatting'
+  417	  01CF    11 01BA               	ld	de,formsg
+  418	  01D2    CD 0005               	call	bdos
+  419	                                
+  420	  01D5    21 03E7               	ld	hl,initlow		; move format program to high memory
+  421	  01D8    11 F500               	ld	de,vdaddr
+  422	  01DB    01 0072               	ld	bc,initx-init		; init end - init begin: #bytes to move
+  423	  01DE    ED B0                 	ldir				; move
+  424	                                
+  425	  01E0    CD F500               	call	format			; format Vdisk directory
+  426	                                
+  427	                                
+  428	                                ;---------------------------------------------------- Move bios routines ------
+  429	                                ;
+  430	                                ; movpgm	move vdisk program to high RAM
+  431	                                ;
+  432	                                
+  433	  01E3    21 022E               movpgm:	ld	hl,vdbiosl		; vdbios low address: where to move from
+  434	  01E6    11 F500               	ld	de,vdaddr		; destination: high memory (>7fffH)
+  435	  01E9    01 01B9               	ld	bc,vdbiosx-vdbios	; program size
+  436	  01EC    ED B0                 	ldir
+  437	                                
+  438	                                
+  439	                                ;-------------------------------------------- Reroute BIOS warmboot-tail ------
+  440	                                ;
+  441	                                ; wboot check for legal drive specification
+  442	                                ; change wboot  jp ccp  to  jp vdwbt
+  443	                                ;
+  444	                                
+  445	  EAF9                          wbjccp	equ	0eaf9H			; address of jp ccp at end of bios wboot
+  446	                                
+  447	  01EE    21 F51F               	ld	hl,vdwbt		; Virtual disk warmboot routine tail
+  448	  01F1    22 EAF9               	ld	(wbjccp),hl		; change original wboot jump CCP to
+  449	                                					;   jump vdwbt
+  450	                                
+  451	                                
+  452	                                ;--------------------------------------------- Overwrite BIOS jump-table ------
+  453	                                ;
+  454	                                ; movjpn	move new jump table
+  455	                                ;
+  456	                                ;		Replace old bios jump table by new table (tabnew)
+  457	                                ;
+  458	                                
+  459	  0001                          jpoadd	equ	1			; address of old jump table
+  460	  0018                          jpbegin	equ	24			; jp seldsk - jp wboot
+  461	                                
+  462	                                
+  463	  01F4    ED 4B 0001            	ld	bc,(jpoadd)
+  464	  01F8    21 0018               	ld	hl,jpbegin
+  465	  01FB    09                    	add	hl,bc
+  466	  01FC    EB                    	ex	de,hl			; de: destination
+  467	  01FD    21 021C               	ld	hl,tabnew		; hl: source
+  468	  0200    01 0012               	ld	bc,tabnewx-tabnew	; bc: size
+  469	  0203    ED B0                 	ldir				; copy
+  470	                                
+  471	                                
+  472	                                ;-------------------------------------------------- Restore stackpointer ------
+  473	                                ;
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-8
+VDisk: [Installation.main-line]
+
+  474	                                ; Restore stackpointer
+  475	                                ;
+  476	                                
+  477	  0205    2A 0219               	ld	hl,(oldsp)		; CCP stackpointer
+  478	  0208    F9                    	ld	sp,hl
+  479	                                
+  480	                                
+  481	                                ;------------------------------------------------- End of initialization ------
+  482	                                ;
+  483	                                ; End of Vdisk initialization
+  484	                                ;
+  485	                                
+  486	  0209    0E 02                 	ld	c,pchr			; issue a linefeed
+  487	  020B    1E 0A                 	ld	e,lf
+  488	  020D    CD 0005               	call	bdos
+  489	                                
+  490	  0210    3A 021B               	ld	a,(fopt)		; option '-F' used?
+  491	  0213    FE 01                 	cp	true
+  492	  0215    C8                    	ret	z			;   yes: return to CCP
+  493	  0216    C3 0000               	jp	0			;   no: warmboot; to see dir. again
+  494	                                
+  495	                                	SUBTTL	VDisk: [Installation.storage]
+  496	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-9
+VDisk: [Installation.storage]
+
+  497	                                
+  498	                                ;----------------------------------------------- (Un)initialized storage ------
+  499	                                ;
+  500	                                ; (Un)initialized storage
+  501	                                ;
+  502	                                
+  503	  0219                          oldsp:	ds	2			; CCP stackpointer saved here
+  504	  021B    00                    fopt:	db	false			; option '-F' used flag
+  505	                                
+  506	                                
+  507	                                ;
+  508	                                ; tabnew	new bios jump table
+  509	                                ;
+  510	                                
+  511	  00C3                          jump	equ	0c3H		; code for JP
+  512	                                
+  513	  021C    C3                    tabnew:	db	jump
+  514	  021D    F52C                  	dw	seldsk
+  515	  021F    C3                    	db	jump
+  516	  0220    F53D                  	dw	settrk
+  517	  0222    C3                    	db	jump
+  518	  0223    F544                  	dw	setsec
+  519	  0225    C3                    	db	jump
+  520	  0226    F54B                  	dw	setdma
+  521	  0228    C3                    	db	jump
+  522	  0229    F552                  	dw	read
+  523	  022B    C3                    	db	jump
+  524	  022C    F57D                  	dw	write
+  525	  022E                          tabnewx:
+  526	                                
+  527	                                	SUBTTL	VDisk: [BIOS.constants]
+  528	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-10
+VDisk: [BIOS.constants]
+
+  529	                                
+  530	                                ;---------------------------------------------------------------- Vdbios ------
+  531	                                ;
+  532	                                ; Vdbios	 Virtual-disk BIOS routines.
+  533	                                ;
+  534	                                
+  535	  022E                          vdbiosl:.phase	vdaddr		; phase addresses to high memory
+  536	                                
+  537	  F500                          vdbios	equ	$
+  538	                                
+  539	                                ;
+  540	                                ; Addresses of old Bondwell 12 CP/M 2.2 bios routines.
+  541	                                ;
+  542	                                				
+  543	  EE90                          oseldsk equ	0ee90H		; seldsk 
+  544	  EEE8                          osettrk equ	0eee8H          ; settrk 
+  545	  EEED                          osetsec equ	0eeedH          ; setsec 
+  546	  EEF2                          osetdma equ	0eef2H          ; setdma 
+  547	  EEF8                          oread	equ	0eef8H          ; read   
+  548	  EF0A                          owrite	equ	0ef0aH          ; write  
+  549	                                                                         
+  550	                                
+  551	                                ;
+  552	                                ; Parameters of DPH and DPB
+  553	                                ;
+  554	                                
+  555	  0000                          xlt	equ	0000		; no sector translation
+  556	  0100                          spt	equ	256		; 256 sectors / track
+  557	  0004                          bsh	equ	4		; allocation blocksize = 2048
+  558	  000F                          blm	equ	15		;  ..
+  559	  0800                          bls	equ	2048		;  ..
+  560	  0080                          al0	equ	80H		; 1 reserved block for DIR.
+  561	  0000                          al1	equ	00
+  562	  0000                          off	equ	0		; no offset tracks
+  563	  003F                          drm	equ 	63		; 63: # dir. entries-1
+  564	  007F                          dsm	equ	vdsize/(bls/1024)-1	; capacity
+  565	  0000                          cks	equ	0		; (drm+1)/4; directory check vector
+  566	  0001                          exm	equ	1		; extent mask
+  567	                                
+  568	  0002                          dirsiz	equ	(drm+1)*32/1024	; directory size (kbyte)
+  569	                                
+  570	                                
+  571	                                ;
+  572	                                ; Virtual-Disk Parameter Header:
+  573	                                ;
+  574	                                
+  575	  F500    0000                  vdph:	dw	xlt
+  576	  F502    0000 0000             	dw	0000,0000,0000
+  577	  F506    0000                  
+  578	  F508    F2CD                  	dw	dirbuf
+  579	  F50A    F510                  	dw	vdpb
+  580	  F50C    0000                  	dw	csv
+  581	  F50E    F620                  	dw	alv
+  582	                                
+  583	                                
+  584	                                ;
+  585	                                ; Virtual-Disk parameter Block:
+  586	                                ;
+  587	                                
+  588	  F510    0100                  vdpb:	dw	spt
+  589	  F512    04 0F                 	db	bsh,blm
+  590	  F514    01                    	db	exm
+  591	  F515    007F                  	dw	dsm
+  592	  F517    003F                  	dw	drm
+  593	  F519    80 00                 	db	al0,al1
+  594	  F51B    0000                  	dw	cks
+  595	  F51D    0000                  	dw	off
+  596	                                
+  597	                                
+  598	                                	SUBTTL	Virtual-Disk: [BIOS.routines]
+  599	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-11
+Virtual-Disk: [BIOS.routines]
+
+  600	                                
+  601	                                ;--------------------------------------------------------- BIOS routines ------
+  602	                                ;
+  603	                                ; BIOS routines
+  604	                                ;
+  605	                                
+  606	                                ;------------------------------------------------------ VD warmboot-tail ------
+  607	                                ;
+  608	                                ; vdwbt
+  609	                                ;
+  610	                                ;	Virtual disk warmboot tail
+  611	                                ;	Check for current drive = virtual disk
+  612	                                ;
+  613	                                
+  614	  0004                          curdsk	equ	4		; address of current user/disk code
+  615	                                
+  616	  F51F    41                    vdwbt:	ld	b,c		; save drive code
+  617	  F520    3A 0004               	ld	a,(curdsk)	; get current drive
+  618	  F523    FE 02                 	cp	vd		; Virtual disk?
+  619	  F525    4F                    	ld	c,a		;   code in reg c
+  620	  F526    28 01                 	jr	z,vdwbt1	;   yes: send vd-code to CCP
+  621	  F528    48                    	ld	c,b		; restore drive code
+  622	  F529    C3 D403               vdwbt1:	jp	ccp		; continue in CCP
+  623	                                
+  624	                                
+  625	                                ;---------------------------------------------------------------- Seldsk ------
+  626	                                ;
+  627	                                ; Seldsk
+  628	                                ;
+  629	                                ;	input:
+  630	                                ;		Reg.c: 	drive
+  631	                                ;	output:
+  632	                                ;		Reg.hl:	vdph address
+  633	                                ;
+  634	                                
+  635	  F52C    C5                    seldsk:	push	bc
+  636	  F52D    47                    	ld	b,a			; save reg.a and c
+  637	  F52E    79                    	ld	a,c			; a:=drive nbr.
+  638	  F52F    32 F6B0               	ld	(drive),a		; drive nbr.
+  639	  F532    FE 02                 	cp	vd			; drive = 'C'?
+  640	  F534    78                    	ld	a,b			;     (restore Reg.a)
+  641	  F535    C1                    	pop	bc			;     (restore Reg.bc)
+  642	  F536    C2 EE90               	jp	nz,oseldsk		;   no: jump to old bios tabel
+  643	  F539    21 F500               	ld	hl,vdph			;   yes: hl = vdph address
+  644	  F53C    C9                    	ret				; return
+  645	                                
+  646	                                
+  647	                                ;---------------------------------------------------------------- Settrk ------
+  648	                                ;
+  649	                                ; Settrk 
+  650	                                ;
+  651	                                ;	input:
+  652	                                ;		Reg.bc:	track
+  653	                                ;	output:
+  654	                                ;		none
+  655	                                ;
+  656	                                
+  657	  F53D    ED 43 F6B1            settrk:	ld	(track),bc		;tracknr. in track
+  658	  F541    C3 EEE8               	jp	osettrk			; continue in original routine
+  659	                                
+  660	                                
+  661	                                
+  662	                                ;---------------------------------------------------------------- Setsec ------
+  663	                                ;
+  664	                                ; Setsec 
+  665	                                ;
+  666	                                ;	input:
+  667	                                ;		Reg.bc:	sector
+  668	                                ;	output:
+  669	                                ;		none
+  670	                                ;
+  671	                                
+  672	  F544    ED 43 F6B3            setsec:	ld	(sector),bc		;sectornr in sector
+  673	  F548    C3 EEED               	jp	osetsec			;continue in original routine
+  674	                                
+  675	                                
+  676	                                
+  677	                                ;---------------------------------------------------------------- Setdma ------
+  678	                                ;
+  679	                                ; Setdma 
+  680	                                ;
+  681	                                ;	input:
+  682	                                ;		Reg.bc:	dma address
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-12
+Virtual-Disk: [BIOS.routines]
+
+  683	                                ;	output:
+  684	                                ;		none
+  685	                                ;
+  686	                                
+  687	  F54B    ED 43 F6B5            setdma:	ld	(dma),bc		;dma address in dma
+  688	  F54F    C3 EEF2               	jp	osetdma			;continue in original routine
+  689	                                
+  690	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-13
+Virtual-Disk: [BIOS.routines]
+
+  691	                                
+  692	                                ;------------------------------------------------------------------ Read ------
+  693	                                ;
+  694	                                ; Read
+  695	                                ;
+  696	                                ;	input:	none
+  697	                                ;	output:	none
+  698	                                ;
+  699	                                
+  700	  F552    CD F5A8               read:	call	checkd			; drive C:?
+  701	  F555    C2 EEF8               	jp	nz,oread		;   no: old jump table
+  702	                                
+  703	  F558    CD F5B2               	call	savstk			; create local stack
+  704	  F55B    CD F5C4               	call	getadr			; hl: address of sector
+  705	  F55E    11 F630               	ld	de,datbuf		; de: destination
+  706	  F561    01 0080               	ld	bc,secsiz		; bc: size
+  707	  F564    ED B0                 	ldir				; copy
+  708	                                
+  709	  F566    3E 01                 	ld	a,1			; restore bank1
+  710	  F568    CD F5FF               	call	bank
+  711	                                
+  712	  F56B    21 F630               	ld	hl,datbuf		; hl: source
+  713	  F56E    ED 5B F6B5            	ld	de,(dma)		; de: destination
+  714	  F572    01 0080               	ld	bc,secsiz		; bc: size
+  715	  F575    ED B0                 	ldir				; copy
+  716	                                
+  717	  F577    3E 00                 	ld	a,0			; return: no error
+  718	  F579    CD F5BE               	call	resstk			; restore external stack
+  719	  F57C    C9                    	ret
+  720	                                
+  721	                                
+  722	                                ;----------------------------------------------------------------- Write ------
+  723	                                ;
+  724	                                ; Write
+  725	                                ;
+  726	                                ;	input:	none
+  727	                                ;	output:	none
+  728	                                ;
+  729	                                
+  730	  F57D    CD F5A8               write:	call	checkd			; drive C:?
+  731	  F580    C2 EF0A               	jp	nz,owrite		;   no: old jump table
+  732	                                
+  733	  F583    CD F5B2               	call	savstk			; define local stack
+  734	                                
+  735	  F586    2A F6B5               	ld	hl,(dma)		; hl: source
+  736	  F589    11 F630               	ld	de,datbuf		; de: destination
+  737	  F58C    01 0080               	ld	bc,secsiz		; bc: size
+  738	  F58F    ED B0                 	ldir				; copy
+  739	                                
+  740	  F591    CD F5C4               	call	getadr
+  741	  F594    EB                    	ex	de,hl			; de: destination
+  742	  F595    21 F630               	ld	hl,datbuf		; hl: source
+  743	  F598    01 0080               	ld	bc,secsiz		; bc: size
+  744	  F59B    ED B0                 	ldir				; copy
+  745	                                
+  746	  F59D    3E 01                 	ld	a,1			; restore bank1
+  747	  F59F    CD F5FF               	call	bank
+  748	                                
+  749	  F5A2    3E 00                 	ld	a,0			; return: no error
+  750	  F5A4    CD F5BE               	call	resstk			; restore external stack
+  751	  F5A7    C9                    	ret
+  752	                                
+  753	                                	SUBTTL	Virtual-Disk: [BIOS.co-routines]
+  754	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-14
+Virtual-Disk: [BIOS.co-routines]
+
+  755	                                
+  756	                                ;---------------------------------------------------------------- Checkd ------
+  757	                                ;
+  758	                                ; Checkd
+  759	                                ;
+  760	                                ;	input:
+  761	                                ;		none
+  762	                                ;	output:
+  763	                                ;		Z-flag=1 if drive is 'C', else Z-flag=0.
+  764	                                ;
+  765	                                
+  766	  F5A8    C5                    checkd:	push	bc
+  767	  F5A9    47                    	ld	b,a
+  768	  F5AA    3A F6B0               	ld	a,(drive)
+  769	  F5AD    FE 02                 	cp	vd			; drive C:?
+  770	  F5AF    78                    	ld	a,b
+  771	  F5B0    C1                    	pop	bc
+  772	  F5B1    C9                    	ret				; return: drive==C:
+  773	                                
+  774	                                
+  775	                                ;---------------------------------------------------------------- Savstk ------
+  776	                                ;
+  777	                                ; Save external stack, create local stack
+  778	                                ;
+  779	                                
+  780	  F5B2    21 0002               savstk:	ld	hl,0002			; save stackpointer, 
+  781	  F5B5    39                    	add	hl,sp			;   returnaddress of 
+  782	  F5B6    22 F6B7               	ld	(extstk),hl		;     calling routine removed
+  783	  F5B9    E3                    	ex	(sp),hl			; get returnaddress of calling routine
+  784	  F5BA    31 F800               	ld	sp,locstk		; create local stack
+  785	  F5BD    E9                    	jp	(hl)			; return to caller
+  786	                                
+  787	                                
+  788	                                ;---------------------------------------------------------------- Resstk ------
+  789	                                ;
+  790	                                ; Restore external stack.
+  791	                                ;
+  792	                                
+  793	  F5BE    E1                    resstk:	pop	hl			; get return address
+  794	  F5BF    ED 7B F6B7            	ld	sp,(extstk)		; restore external stackpointer
+  795	  F5C3    E9                    	jp	(hl)			; return to caller
+  796	                                	
+  797	                                
+  798	                                ;---------------------------------------------------------------- Getadr ------
+  799	                                ;
+  800	                                ; Getadr 	256 sectors/track
+  801	                                ;
+  802	                                ;	Select bank of current sector
+  803	                                ;	Return bank-address of current sector
+  804	                                ;
+  805	                                ;	input:
+  806	                                ;		none
+  807	                                ;	output:
+  808	                                ;		Reg.hl: address of sector (0..7f80)
+  809	                                ;
+  810	                                
+  811	  F5C4                          getadr:
+  812	                                
+  813	                                ; Select bank
+  814	  F5C4    3A F6B1               	ld	a,(track)		; low byte
+  815	  F5C7    C6 02                 	add	a,vdboff		; Vdisktracks: >= bank2
+  816	  F5C9    CD F5FF               	call	bank			; select bank
+  817	                                
+  818	                                ; Calculate address
+  819	  F5CC    3A F6B3               	ld	a,(sector)		; low byte
+  820	  F5CF    67                    	ld	h,a
+  821	  F5D0    2E 00                 	ld	l,0
+  822	  F5D2    CB 3C                 	srl	h
+  823	  F5D4    CB 1D                 	rr	l			; hl: 0,S7..S1 : S0,0..0
+  824	                                
+  825	  F5D6    C9                    	ret
+  826	                                
+  827	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-15
+Virtual-Disk: [BIOS.co-routines]
+
+  828	                                
+  829	                                ;------------------------------------------------------------------ Bank ------
+  830	                                ;
+  831	                                ;	BANK: select a memory-bank
+  832	                                ;
+  833	                                ;	input:
+  834	                                ;		Reg.a:	banknumber
+  835	                                ;	output:
+  836	                                ;		none
+  837	                                ;
+  838	                                
+  839	  F5D7    02 00 02 00           bnkdat: db	2,0,2,0		; bank0
+  840	  F5DB    02 00 02 01           	db	2,0,2,1		; bank1
+  841	  F5DF    02 00 03 00           	db	2,0,3,0		; bank2
+  842	  F5E3    02 00 03 01           	db	2,0,3,1		; bank3
+  843	  F5E7    02 01 03 00           	db	2,1,3,0		; bank4
+  844	  F5EB    02 01 03 01           	db	2,1,3,1		; bank5
+  845	  F5EF    03 00 03 00           	db	3,0,3,0		; bank6
+  846	  F5F3    03 00 03 01           	db	3,0,3,1		; bank7
+  847	  F5F7    03 01 03 00           	db	3,1,3,0		; bank8
+  848	  F5FB    03 01 03 01           	db	3,1,3,1		; bank9
+  849	                                
+  850	  F5FF                          bank:	
+  851	                                
+  852	                                IF capson EQ true
+  853	                                
+  854	                                	out	(9),a		; clear caps lock
+  855	                                	cp	vdboff
+  856	                                	jr	c,bank1
+  857	                                	out	(8),a		; light caps lock
+  858	                                bank1:
+  859	                                
+  860	                                ENDIF
+  861	                                
+  862	                                	
+  863	                                ; get address of bank-select code
+  864	  F5FF    06 00                 	ld	b,0		; clear reg b
+  865	  F601    4F                    	ld	c,a
+  866	  F602    CB 21                 	sla	c		; *4 (four byte/entry)
+  867	  F604    CB 21                 	sla	c
+  868	  F606    21 F5D7               	ld	hl,bnkdat
+  869	  F609    09                    	add	hl,bc		; hl points to bankdat[index]
+  870	                                
+  871	                                ; select LS158 switch (Quad data selector)
+  872	  F60A    4E                    	ld	c,(hl)
+  873	  F60B    ED 79                 	out	(c),a		; set LS259 O0
+  874	  F60D    23                    	inc	hl
+  875	  F60E    4E                    	ld	c,(hl)
+  876	  F60F    ED 79                 	out	(c),a		; set LS259 O1
+  877	                                
+  878	  F611    D3 04                 	out	(4),a		; toggle LS174 strobe (Hex D flipflop)
+  879	  F613    D3 05                 	out	(5),a		;   LS259, O2:  _|~|_
+  880	  F615    D3 04                 	out	(4),a
+  881	                                
+  882	                                ; select LS138 decoder
+  883	  F617    23                    	inc	hl
+  884	  F618    4E                    	ld	c,(hl)
+  885	  F619    ED 79                 	out	(c),a		; set LS259 O0
+  886	  F61B    23                    	inc	hl
+  887	  F61C    4E                    	ld	c,(hl)
+  888	  F61D    ED 79                 	out	(c),a		; set LS259 O1
+  889	                                
+  890	  F61F    C9                    	ret
+  891	                                
+  892	                                	SUBTTL	Virtual-Disk: [BIOS.storage]
+  893	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-16
+Virtual-Disk: [BIOS.storage]
+
+  894	                                
+  895	                                ;--------------------------------------------------------------- Storage ------
+  896	                                ;
+  897	                                ; Virtual disk local variables 
+  898	                                ;   (These don't have to be copied into Vdisk BIOS area)
+  899	                                ;
+  900	                                
+  901	                                ;------------------------------------------------------------------- CSV ------
+  902	                                ;
+  903	                                ; Virtual-Disk directory check vector
+  904	                                ;
+  905	                                
+  906	                                IF  cks EQ 0
+  907	  0000                           csv	equ	0		; no check vector (0)
+  908	                                ELSE
+  909	                                 csv:	rept	cks		; cks byte check vector
+  910	                                	db	0
+  911	                                	endm
+  912	                                ENDIF
+  913	                                
+  914	                                
+  915	                                ;------------------------------------------------------------------- ALV ------
+  916	                                ;
+  917	                                ; Virtual-Disk storage allocation information buffer
+  918	                                ;
+  919	                                
+  920	  F620                          alv:	ds	dsm/8+1		; 1 bit/bls [bit/k]
+  921	                                
+  922	                                
+  923	                                ;------------------------------------------------------------ Databuffer ------
+  924	                                ;
+  925	                                ; Virtual-Disk databuffer		high memory data buffer
+  926	                                ;
+  927	                                
+  928	  F630                          datbuf:	ds	secsiz
+  929	                                
+  930	                                
+  931	                                ;------------------------------------------------------- Other variables ------
+  932	                                ;
+  933	                                ; Other variables
+  934	                                ;
+  935	                                
+  936	  F6B0                          drive:	ds	1		; current drive
+  937	  F6B1                          track:	ds	2		; current track
+  938	  F6B3                          sector:	ds	2		; current sector
+  939	  F6B5                          dma:	ds	2		; current dma address
+  940	                                
+  941	                                
+  942	                                ;---------------------------------------------------- Local stackpointer ------
+  943	                                ;
+  944	                                ; Local stackpointer for read- and write-routines
+  945	                                ;
+  946	                                
+  947	  F800                          locstk	equ	0F800H			; just below video-ram
+  948	  F6B7                          extstk:	ds	2			; save external stackpointer here
+  949	                                
+  950	  F6B9                          vdbiosx:.dephase			; end of vdisk routines
+  951	                                
+  952	                                	SUBTTL	Vdisk: [format directory]
+  953	                                	PAGE
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-17
+Vdisk: [format directory]
+
+  954	                                
+  955	                                ;---------------------------------------------------------------- Format ------
+  956	                                ;
+  957	                                ;	FORMAT Vdisk directory
+  958	                                ;
+  959	                                
+  960	  03E7                          initlow:.phase	vdaddr	
+  961	                                
+  962	  F500                          init:
+  963	  F500    3E 02                 format:	ld	a,dirsiz/bnksiz+vdboff	; format bank(s) with directory space
+  964	  F502    CD F54B               format1:call	ibank
+  965	  F505    CD F512               	call	format2			; format bank
+  966	  F508    D6 01                 	sub	1
+  967	  F50A    FE 01                 	cp	1
+  968	  F50C    20 F4                 	jr	nz,format1
+  969	  F50E    CD F54B               	call	ibank			; restore bank1
+  970	  F511    C9                    	ret
+  971	                                
+  972	  F512    F5                    format2:push	af			; save reg a
+  973	  F513    21 0000               	ld	hl,0H
+  974	  F516    11 0001               	ld	de,1H
+  975	  F519    01 7FFF               	ld	bc,bnksiz*1024-1	; 32k
+  976	  F51C    3E E5                 	ld	a,0E5h
+  977	  F51E    77                    	ld	(hl),a
+  978	  F51F    ED B0                 	ldir
+  979	  F521    F1                    	pop	af			; restore reg a
+  980	  F522    C9                    	ret
+  981	                                
+  982	                                
+  983	                                ;----------------------------------------------------------------- IBank ------
+  984	                                ;
+  985	                                ;	IBANK
+  986	                                ;
+  987	                                ;	input:
+  988	                                ;		Reg.a:	banknumber
+  989	                                ;	output:
+  990	                                ;		none
+  991	                                ;
+  992	                                
+  993	  F523    02 00 02 00           ibnkdat:db	2,0,2,0		; bank0
+  994	  F527    02 00 02 01           	db	2,0,2,1		; bank1
+  995	  F52B    02 00 03 00           	db	2,0,3,0		; bank2
+  996	  F52F    02 00 03 01           	db	2,0,3,1		; bank3
+  997	  F533    02 01 03 00           	db	2,1,3,0		; bank4
+  998	  F537    02 01 03 01           	db	2,1,3,1		; bank5
+  999	  F53B    03 00 03 00           	db	3,0,3,0		; bank6
+ 1000	  F53F    03 00 03 01           	db	3,0,3,1		; bank7
+ 1001	  F543    03 01 03 00           	db	3,1,3,0		; bank8
+ 1002	  F547    03 01 03 01           	db	3,1,3,1		; bank9
+ 1003	                                
+ 1004	  F54B    F5                    ibank:	push	af		; save registers
+ 1005	  F54C    C5                    	push	bc
+ 1006	  F54D    E5                    	push	hl
+ 1007	                                
+ 1008	                                
+ 1009	                                IF capson EQ true
+ 1010	                                
+ 1011	                                	out	(9),a		; clear caps lock
+ 1012	                                	cp	vdboff
+ 1013	                                	jr	c,ibank1
+ 1014	                                	out	(8),a		; light caps lock
+ 1015	                                ibank1:
+ 1016	                                
+ 1017	                                ENDIF
+ 1018	                                
+ 1019	                                	
+ 1020	                                ; get address of bank-select code
+ 1021	  F54E    06 00                 	ld	b,0		; clear reg b
+ 1022	  F550    4F                    	ld	c,a
+ 1023	  F551    CB 21                 	sla	c		; *4 (four byte/entry)
+ 1024	  F553    CB 21                 	sla	c
+ 1025	  F555    21 F523               	ld	hl,ibnkdat
+ 1026	  F558    09                    	add	hl,bc		; hl points to ibankdat[index]
+ 1027	                                
+ 1028	                                ; select LS158 switch (Quad data selector)
+ 1029	  F559    4E                    	ld	c,(hl)
+ 1030	  F55A    ED 79                 	out	(c),a		; set LS259 O0
+ 1031	  F55C    23                    	inc	hl
+ 1032	  F55D    4E                    	ld	c,(hl)
+ 1033	  F55E    ED 79                 	out	(c),a		; set LS259 O1
+ 1034	                                
+ 1035	  F560    D3 04                 	out	(4),a		; toggle LS174 strobe (Hex D fliplfop)
+ 1036	  F562    D3 05                 	out	(5),a		;   LS259, O2:  _|~|_  
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	1-18
+Vdisk: [format directory]
+
+ 1037	  F564    D3 04                 	out	(4),a		;
+ 1038	                                
+ 1039	                                ; select LS138 decoder
+ 1040	  F566    23                    	inc	hl
+ 1041	  F567    4E                    	ld	c,(hl)
+ 1042	  F568    ED 79                 	out	(c),a		; set LS259 O0
+ 1043	  F56A    23                    	inc	hl
+ 1044	  F56B    4E                    	ld	c,(hl)
+ 1045	  F56C    ED 79                 	out	(c),a		; set LS259 O1
+ 1046	                                
+ 1047	  F56E    E1                    	pop	hl		; restore registers
+ 1048	  F56F    C1                    	pop	bc
+ 1049	  F570    F1                    	pop	af
+ 1050	  F571    C9                    	ret
+ 1051	                                
+ 1052	                                ;--------------------------------------------------------- End of format ------
+ 1053	                                ;
+ 1054	                                ; 	END initialize
+ 1055	                                ;
+ 1056	                                
+ 1057	  F572                          initx:	.dephase
+ 1058	                                
+ 1059	                                
+ 1060	                                ;--------------------------------------------------------- End of file ------
+ 1061	                                ;
+ 1062	                                ;	END OF FILE
+ 1063	                                ;
+ 1064	                                	end
+VDISK	MACRO-80 3.44	09-Dec-81	PAGE	S
+Vdisk: [format directory]
+
+Macros:
+
+Symbols:
+0080 	AL0             0000 	AL1             F620 	ALV             
+F5FF 	BANK            0005 	BDOS            000F 	BLM             
+0800 	BLS             F5D7 	BNKDAT          0020 	BNKSIZ          
+0004 	BSH             0000 	CAPSON          D403 	CCP             
+F5A8 	CHECKD          0000 	CKS             000D 	CR              
+0000 	CSV             0004 	CURDSK          F630 	DATBUF          
+F2CD 	DIRBUF          0002 	DIRSIZ          F6B5 	DMA             
+F6B0 	DRIVE           003F 	DRM             007F 	DSM             
+0001 	EXM             F6B7 	EXTSTK          0000 	FALSE           
+021B 	FOPT            F500 	FORMAT          F502 	FORMAT1         
+F512 	FORMAT2         01BA 	FORMSG          F5C4 	GETADR          
+F54B 	IBANK           F523 	IBNKDAT         F500 	INIT            
+03E7 	INITLOW         F572 	INITX           0018 	JPBEGIN         
+0001 	JPOADD          00C3 	JUMP            000A 	LF              
+F800 	LOCSTK          01CD 	MOVFOR          01E3 	MOVPGM          
+011E 	MSG             0000 	OFF             0219 	OLDSP           
+019C 	OPT             01B8 	OPTX            EEF8 	OREAD           
+EE90 	OSELDSK         EEF2 	OSETDMA         EEED 	OSETSEC         
+EEE8 	OSETTRK         EF0A 	OWRITE          0002 	PCHR            
+0009 	PSTR            F552 	READ            F5BE 	RESSTK          
+F5B2 	SAVSTK          0080 	SECSIZ          F6B3 	SECTOR          
+F52C 	SELDSK          F54B 	SETDMA          F544 	SETSEC          
+F53D 	SETTRK          0100 	SPT             F800 	STACK           
+018A 	START           021C 	TABNEW          022E 	TABNEWX         
+F6B1 	TRACK           0001 	TRUE            0002 	VD              
+F500 	VDADDR          F500 	VDBIOS          022E 	VDBIOSL         
+F6B9 	VDBIOSX         0002 	VDBOFF          F510 	VDPB            
+F500 	VDPH            0100 	VDSIZE          F51F 	VDWBT           
+F529 	VDWBT1          EAF9 	WBJCCP          F57D 	WRITE           
+0000 	XLT             
+
+
+
+No Fatal error(s)
+
+
+
+AL0	  560#	  593
+AL1	  561#	  593
+ALV	  581	  920#
+BANK	  710	  747	  816	  850#
+BDOS	  286#	  370	  418	  488
+BLM	  558#	  589
+BLS	  559#	  564
+BNKDAT	  839#	  868
+BNKSIZ	  279#	  963	  975
+BSH	  557#	  589
+CAPSON	  271#	  852	 1009
+CCP	  282#	  622
+CHECKD	  700	  730	  766#
+CKS	  565#	  594	  906
+CR	  290#	  333	  336	  341	  347	  354	  361	  414
+CSV	  580	  907#
+CURDSK	  614#	  617
+DATBUF	  705	  712	  736	  742	  928#
+DIRBUF	  283#	  578
+DIRSIZ	  568#	  963
+DMA	  687	  713	  735	  939#
+DRIVE	  638	  768	  936#
+DRM	  563#	  568	  592
+DSM	  564#	  591	  920
+EXM	  566#	  590
+EXTSTK	  782	  794	  948#
+FALSE	  269#	  271	  504
+FOPT	  397	  490	  504#
+FORMAT	  425	  963#
+FORMAT1	  964#	  968
+FORMAT2	  965	  972#
+FORMSG	  410#	  417
+GETADR	  704	  740	  811#
+IBANK	  964	  969	 1004#
+IBNKDAT	  993#	 1025
+INIT	  422	  962#
+INITLOW	  420	  960#
+INITX	  422	 1057#
+JPBEGIN	  460#	  464
+JPOADD	  459#	  463
+JUMP	  511#	  513	  515	  517	  519	  521	  523
+LF	  291#	  333	  336	  337	  342	  348	  354	  410	  487
+LOCSTK	  784	  947#
+MOVFOR	  399	  416#
+MOVPGM	  400	  433#
+MSG	  333#	  369
+OFF	  562#	  595
+OLDSP	  365	  477	  503#
+
+OPT	  382#
+OPTX	  385	  390	  394	  400#
+OREAD	  547#	  701
+OSELDSK	  543#	  642
+OSETDMA	  546#	  688
+OSETSEC	  545#	  673
+OSETTRK	  544#	  658
+OWRITE	  548#	  731
+PCHR	  287#	  486
+PSTR	  288#	  368	  416
+READ	  522	  700#
+RESSTK	  718	  750	  793#
+SAVSTK	  703	  733	  780#
+SECSIZ	  280#	  706	  714	  737	  743	  928
+SECTOR	  672	  819	  938#
+SELDSK	  514	  635#
+SETDMA	  520	  687#
+SETSEC	  518	  672#
+SETTRK	  516	  657#
+SPT	  556#	  588
+STACK	  284#	  366
+START	  313	  363#
+TABNEW	  467	  468	  513#
+TABNEWX	  468	  525#
+TRACK	  657	  814	  937#
+TRUE	  268#	  396	  491	  852	 1009
+VD	  274#	  618	  639	  769
+VDADDR	  277#	  421	  434	  535	  960
+VDBIOS	  435	  537#
+VDBIOSL	  433	  535#
+VDBIOSX	  435	  950#
+VDBOFF	  276#	  815	  963
+VDPB	  579	  588#
+VDPH	  575#	  643
+VDSIZE	  275#	  564
+VDWBT	  447	  616#
+VDWBT1	  620	  622#
+WBJCCP	  445#	  448
+WRITE	  524	  730#
+XLT	  555#	  575
+
+TTRK	  516	  657#
+SPT	  556#	  

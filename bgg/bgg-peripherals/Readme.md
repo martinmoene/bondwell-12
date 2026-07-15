@@ -1,0 +1,575 @@
+<h2 id="xref">Bondwell 12/14 Programmable Peripheral I.C.'s.</h2>
+
+<p>door  M.J. Moene</p>
+
+<div class="floater">This article was published in Bondwell/ELCI-gg mededelingen, nummer 1, oktober 1987</a>.</div>
+
+<p>Een  computer ontleent een deel van zijn gebruiksmogelijkheden aan de op de processor aangesloten peripheral I.C.'s. Dit  artikel  beschrijft de werking en programmering van een  deel  van  de peripheral I.C.'s van de Bondwell 12/14.</p>
+
+<p>Globale opbouw van de Bondwell 12/14:</p>
+
+<pre>
++-----+         +-----+      +-------------------------------+
+|VIDEO|---------|CRTC |------| Video output                  |
++-----+         +-----+      +-------------------------------+
+| RAM |            |
++-----+    +-------+         +-------------------------------+
+   |       |             +---| Keyboard interface            |
++-----+    |    +-----+  |   +-------------------------------+
+| CPU |----+----| PIA |--+
++-----+    |    +-----+  |   +-------------------------------+
+           |       |     +---| Centronics parallel interface |
+           |       |         +-------------------------------+
+           |    +-----+
+           +----| CTC |
+           |    +-----+
+           |       |
+           |    +-----+      +-------------------------------+
+           +----| SIO |------| RS232 serial interface  (2 x) |
+           |    +-----+      +-------------------------------+
+           |
+           |    +-----+      +-------------------------------+
+           +----| FDC |------| floppy-diskdrive        (2 x) |
+           |    +-----+      +-------------------------------+
+           |
+           |    +-----+      +-------------------------------+
+           +----| DAC |------| Audio output                  |
+           |    +-----+      +-------------------------------+
+           |
+           +--- I/O address & data lines
+
+
+Naam   Functie                 I.C.       I/O Adres   Hoofdstuk
+
+CRTC   Video-controller        MC6845     $10..$11    H 1.
+CTC    Counter-timer           i8253      $60..$63    H 2.
+SIO    Serial interface        Z80 SIO    $40..$43    H 3.
+PIA    Parallel interface      MC6821     $3C..$3F    Niet behandeld
+FDC    Floppydisk-controller   uPD765     $20..$21    Niet behandeld
+DAC    Audio output            MC1408     $50         Niet behandeld
+</pre>
+
+<h3>1. Video-controller</h3>
+
+<h4>1.1. Hardware</h4>
+
+<p>CRTC control register address: $10<br /> CRTC data register address   : $11<br /></p>
+
+<p>De  video-controller  dient om van de in de video-buffer  opgeslagen  ASCII karakters een signaal te maken dat geschikt is voor de video-monitor.   Het I.C. genereert bovendien de signalen die nodig zijn voor de cursor. De  ASCII karakters uit de video-buffer worden met behulp van een karakter- ROM  omgezet  in  een 'dot matrix' signaal,  waaraan  tevens  de  benodigde horizontale en verticale synchronisatie-signalen toegevoegd worden.</p>
+
+<p>De  video-buffer  is een speciaal deel van het geheugen dat zowel  voor  de processor als voor de video-controller toegankelijk is.   De buffer is twee kilobyte  (2048 byte) groot en begint op geheugenadres  $F800.   Het  beeld bevat 25 regels x 80 karakters/regel = 2000 karakters,  zodat de laatste 48 byte van de buffer ongebruikt zijn.</p>
+
+<p>Met  de video-controller MC 6845 is het in principe mogelijk  om  hardware- scrolling en -paging toe te passen.  Doordat de video-buffer beperkt is tot e'e'n pagina, is dit voor de Bondwell 12/14 niet mogelijk.</p>
+
+<p>De video-controller MC 6845 heeft twee direct toegankelijke registers: het control-register en het data-register. Via   het  control-register  kan  een  van  de  achttien  program-registers geselecteerd  worden.   Door lezen van of schrijven naar het  data-register wordt de inhoud van het geselecteerde register gelezen dan wel beschreven. Onderstaande tabel geeft een overzicht van de functies van de registers.</p>
+
+<pre>
+Reg.  Function               unit         R/W     7  6  5  4  3  2  1  0
+
+AR    Address register      [ -- ]         W      -  -  -  B4 B3 B2 B1 B0
+R0    Horizontal total      [char]         W      B7 B6 B5 B4 B3 B2 B1 B0
+R1    Horizontal displayed  [char]         W      B7 B6 B5 B4 B3 B2 B1 B0
+R2    Hor. sync. position   [char]         W      B7 B6 B5 B4 B3 B2 B1 B0
+R3    Sync. width           [ -- ]         W      V1 V1 V1 V1 H  H  H  H
+R4    Vertical total        [char row ]    W      -  B6 B5 B4 B3 B2 B1 B0
+R5    Vert. total adjust    [scan line]    W      -  -  -  B4 B3 B2 B1 B0
+R6    Vertical displayed    [char row ]    W      -  B6 B5 B4 B3 B2 B1 B0
+R7    Vert. sync position   [char row ]    W      -  B6 B5 B4 B3 B2 B1 B0
+R8    Interlace mode & skew [   --    ]    W      -  -  -  -  -  -  I  I
+R9    Max scan line address [scan line]    W      -  -  -  B4 B3 B2 B1 B0
+R10   Cursor start          [scan line]    W      -  B  P  B4 B3 B2 B1 B0
+R11   Cursor end            [scan line]    W      -  -  -  B4 B3 B2 B1 B0
+R12   Start address (H)     [ -- ]         W      -  -  B5 B4 B3 B2 B1 B0
+R13   Start address (L)     [ -- ]         W      B7 B6 B5 B4 B3 B2 B1 B0
+R14   Cursor (H)            [ -- ]        R/W     -  -  B5 B4 B3 B2 B1 B0
+R15   Cursor (L)            [ -- ]        R/W     B7 B6 B5 B4 B3 B2 B1 B0
+R16   Light pen (H)         [ -- ]         R      -  -  B5 B4 B3 B2 B1 B0
+R17   Light pen (L)         [ -- ]         R      B7 B6 B5 B4 B3 B2 B1 B0
+</pre>
+
+<h4>1.2. Software</h4>
+
+<h5>1.2.1. Beeldherhalingsfrequentie</h5>
+
+<p>Bij een 'cold boot' van de Bondwell 12/14 wordt de video-controller zodanig gei"nitialiseerd  dat de beeldherhalingsfrequentie 60 Hz bedraagt.   Dit  is dezelfde frequentie als die van het lichtnet in de Verenigde  Staten.   Dit is  gedaan  om  het 'golven' van het beeld ten  gevolge  van  interferentie tussen de beeldherhalingsfrequentie en de lichtnetfrequentie tegen te gaan.</p>
+
+<p>Daar  in Europa de lichtnetfrequentie 50 Hz is,  voldoet deze initialisatie hier   niet   aan  die  voorwaarde.    Het  vervolg   beschrijft   hoe   de beeldherhalingsfrequentie op 50 Hz gebracht kan worden.</p>
+
+<p>Het  video-beeld  is opgebouwd uit lijnen:  in het geval van een  7x9  'dot matrix'  voor  elke regel 9 lijnen (eventueel vermeerderd met  onbeschreven lijnen).   Na het schrijven van elke lijn wordt de electronenstraal die het beeld  schrijft  snel teruggebracht naar het begin van de  volgende  regel.</p>
+
+<p>Evenzo  wordt  de  electronenstraal na het schrijven van het  gehele  beeld teruggebracht  naar  het begin van het beeldscherm  linksboven.   Zowel  de lijnterugslag  als de frameterugslag neemt enige tijd inbeslag,  zodat  dan geen zichtbare informatie weergegeven kan worden.  Grafisch voorgesteld:</p>
+
+<pre>
+          K0                             K79                    K112
+         +----------------------------------+-----------------------+
+regel  0 |K0                             K79|                       |
+         |                                  |      Horizontale      |
+         |        Zichtbaar deel            | <---  terugslag  ---> |
+         |                                  |        tijd           |
+regel 24 |K1920                        K1999|                       |
+         +----------------------------------+-----------------------+
+         |               /\                                         |
+         |               ||  Verticale terugslag tijd               |
+regel 27 |               \/                                         |
+         +----------------------------------------------------------+
+</pre>
+
+<p>Voor  het  programmeren van de video-controller moet de tijd nodig voor  de horizontale  terugslag uitgedrukt worden in de tijd die nodig is  voor  het schrijven van e'e'n karakter (K).   De tijd nodig voor de verticale terugslag moet  worden uitgedrukt in de tijd die nodig is voor het schrijven van  e'e'n regel  plus die voor een fractie van een regel.   Een fractie van een regel is e'e'n lijn van de 7x9 'dot matrix'.  Zo wordt de breedte van het zichtbare plus het niet-zichtbare deel van het beeld uitgedrukt karakters , de lengte in regels.</p>
+
+<p>De waarden die in de registers geprogrammeerd moeten worden zijn: Zichtbaar deel beeld + terugslagtijd</p>
+
+<pre>
+Register 0 - horizontal total     : totaal aantal karakters horizontaal -1
+Register 4 - vertical total       : totaal aantal gehele regels van beeld -1
+Register 5 - vertical total adjust: aantal lijnen in overblijvende fractie
+Zichtbaar deel beeld
+Register 1 - horizontal displayed : aantal karakters horizontaal
+Register 6 - vertical displayed   : aantal regels verticaal
+</pre>
+
+<p>Door  de  waarde  van  het  totaal aantal regels  met  een  factor  6/5  te vergroten,  wordt de totale tijd nodig voor het schrijven van e'e'n beeld met een  factor  6/5 vergroot,  terwijl het aantal  weergegeven  regels  gelijk blijft.    Hierdoor   wordt   de  beeldherhalings-frequentie  van   60   Hz teruggebracht tot 50 Hz.</p>
+
+<p>Een  gebruikelijke waarde  voor  'vertical total'  bij een  beeldopbouw van 24  regels  x 80 kolommen bij 60 Hz is 27 regels.   Omrekenen  naar  50  Hz geeft:  vertical total [50 Hz]= 6/5 * (27+1) -1 geeft 32.6 regels.   Om een beeldherhalingsfrequentie  van  50  Hz te krijgen voor het  Bondwell  12/14 scherm van 25 regels x 80 kolommen is proefondervindelijk een waarde van 34 regels  voor  'vertical  total' en 0 lijnen voor  'vertical  total  adjust' gevonden.</p>
+
+<p>Door  het veranderen van het totaal aantal regels verschuift het  verticale synchronisatiepunt.   Dit  kan  worden gecorrigeerd door de waarde van  het 'vertical  sync position'-register (Register 7) uitgedrukt  in  regelnummer aan de nieuwe situatie aan te passen.  De nieuwe waarde hiervoor is 28.</p>
+
+<h5>1.2.2. Cursor positie</h5>
+
+<p>Register  14 en 15 van de CRTC bevatten het adres (nummer) van het karakter waarop de cursor staat:  linksboven in het scherm is nummer 0,  rechtsonder is nummer 1999 (25 regels x 80 kolommen - 1).</p>
+
+<p>Om  de cursor op een bepaalde positie te zetten wordt register  R14  gevuld met  het  high  order byte en register R15 met het low order byte  van  het karakternummer van de gewenste cursorpositie.</p>
+
+<p>Om  de cursor positie op te vragen lezen we de registers R14 en R15 uit  en vormen van deze twee bytes het karakternummer van de huidige cursorpositie. De schermpositie van de cursor kan dan als volgt bepaald worden: regel= nummer : 80,  kolom= nummer - (regel x 80).</p>
+
+<p>Hierna  volgen  enige  programmavoorbeelden voor  het  manipuleren  van  de cursorpositie.  Het scherm is hierbij als volgt gedefinieerd:</p>
+
+<pre>
++---------------------------------------------+
+| <- schermpositie y,x : 0,0                  |
+|                                             |
+|                                             |
+|    y: 0..LPS-1  (Lines Per Screen -1)       |
+|    x: 0..CPL-1  (Characters Per Line -1)    |
+|                                             |
+|                                             |
+|          schermpositie y,x : LPS-1,CPL-1 -&gt; |
++---------------------------------------------+
+
+cursor(y,x)   : positioneer de cursor op regel y, kolom x.
+curpos(y,x)   : bepaal huidige cursorpositie
+
+const CPL= 80;                              { Characters per line }
+      LPS= 25;                              { Lines per screen    }
+
+{ Cursorpositionering gebruik makend van de }
+{ cursorbesturings escape sequence          }
+
+procedure cursor(y,x: integer);                     { Position cursor at: }
+   const ESC = 27;                                  {   line y, column x  }
+   begin                                            { position (y,x)      }
+     write(chr(ESC),'=',chr(y+32),chr(x+32));
+   end;
+
+{ Cursorpositionering direct gebruik makend van de }
+{ CRTC cursor control registers         (Noot 3,4) }
+
+procedure cursor1(y,x: integer);
+   const MC6845_AD = $10;                   { Video controller addr.reg.  }
+         MC6845_DA = $11;                   { Video controller data reg.  }
+         CURHI = 14;                        { Cursor address reg. HO-part }
+         CURLO = 15;                        { Cursor address reg. LO-part }
+   var   number : integer;
+   begin
+     number := y * CPL + x;                 { Calculate character number  }
+     port[MC6845_AD] := CURHI;              { Cursor High address reg.    }
+     port[MC6845_DA] := number div 256;     { MC6845 data register        }
+     port[MC6845_AD] := CURLO;              { Cursor Low address register }
+     port[MC6845_DA] := number mod 256;     { MC6845 data register        }
+   end;
+
+{ Cursor plaatsbepaling gebruik makend van de }
+{ CRTC cursor control registers      (Noot 4) }
+
+procedure curpos(var yp,xp: integer);       { Determine current cursor-   }
+                                            { position                    }
+   const MC6845_AD = $10;                   { Video controller addr.reg.  }
+         MC6845_DA = $11;                   { Video controller data reg.  }
+         CURHI = 14;                        { Cursor address reg. HO-part }
+         CURLO = 15;                        { Cursor address reg. LO-part }
+   var   number,hi,lo : integer;
+   begin
+     port[MC6845_AD] := CURHI;              { Cursor High address reg.    }
+     hi := port[MC6845_DA];                 { MC6845 data register        }
+
+     port[MC6845_AD] := CURLO;              { Cursor Low address register }
+     lo := port[MC6845_DA];                 { MC6845 data register        }
+
+     number := hi * 256 + lo;               { Calculate character number  }
+     yp := number div CPL;                  { Line                        }
+     xp := number mod CPL;                  { Column                      }
+   end;
+</pre>
+
+<h5>1.2.3. Cursorgrootte en -blinking</h5>
+
+<p>Register 10 en 11 van de CRTC bevatten de beschrijving van de cursorgrootte en -display-mode.</p>
+
+<pre>
+Bit 5 en 6 van register 10 bepalen de display-mode:
+R10 : Bit 6,5  : 0 0 - Non-blink          1 0 - Blink, 1/16 Field rate
+                 0 1 - Non-display        1 1 - Blink, 1/32 Field rate
+
+Bit 0..4 van de registers 10 en 11 bepalen de grootte van de cursor:
+R10 : Bit 0..4 : Start line of cursor     waarde: 0..8
+R11 : Bit 0..4 : End line of cursor       waarde: 0..8
+</pre>
+
+<p>'Start  line'  en 'End line' zijn de nummers van de rijen van de 7x9  'dot matrix' (kolommen x rijen) waaruit de karakters op het scherm zijn opgebouwd.</p>
+
+<p>Programmavoorbeeld om de cursorgrootte en -display-mode in te stellen.</p>
+
+<pre>
+const  NON_BLINK   = 0;                     { Values for var. frequency   }
+       NON_DISPLAY = 1;                     { of procedure curshape       }
+       CUR_FAST    = 2;
+       CUR_SLOW    = 3;
+                                                      { Noot 1,2,4        }
+procedure curshape(frequency,first,last : integer);   { Frequency  : 0..3 }
+                                                      { First, last: 0..8 }
+   const MC6845_AD = $10;                   { Video controller addr.reg.  }
+         MC6845_DA = $11;                   { Video controller data reg.  }
+         CURSTART  = 10;                    { Cursor address reg. HO-part }
+         CUREND    = 11;                    { Cursor address reg. LO-part }
+   begin                                    { Cursor blink and start line }
+     port[MC6845_AD] := CURSTART;           { register                    }
+     port[MC6845_DA] := frequency * 32 + first;  { Shift frq. 5 bit left, }
+                                                 { bitwise or with first  }
+     port[MC6845_AD] := CUREND;             { Cursor end line register    }
+     port[MC6845_DA] := last;               { Fill register               }
+   end;
+</pre>
+
+<h3>2. Counter-timer</h3>
+
+<h4>2.1. Hardware</h4>
+
+<p>CTC data register counter/timer 0: $60<br />
+CTC data register counter/timer 1: $61<br />
+CTC data register counter/timer 2: $62<br />
+CTC control register address     : $63<br /></p>
+
+<p>De  counter-timer  i8253 bevat drie identieke 16 bit  down-counters.   Elke counter heeft een clock- en gate-input en een output.   De klokingangen van de  drie  counters  zijn  aangesloten op  e'e'n  kristal-oscillator  met  een frequentie  van  1,8432  MHz.   De gate-inputs van de  drie  counters  zijn verbonden met de +5V.   De uitgangen van counter 0 en 1 zijn verbonden  met de  klokingangen  van de Z80 SIO kanaal A (RxCA,TxCA) en  B  (RxTxCB).   De uitgang van counter 2 is verbonden met PIA ingang PA4.</p>
+
+<p>De  counter-timer heeft vier registers:  een dataregister (read/write) voor elke counter en een control-register (write-only).</p>
+
+<p>Beschrijving van het control-register van de CTC i8253.</p>
+
+<pre>
+   Control-register
+
+   7 6 5 4 3 2 1 0
+   | | | | | | | |
+   | | | | | | | 0    0  BIN  16 bit binairy counter
+   | | | | | | | 1    1  BCD  4 decades BCD counter
+   | | | | | | |
+   | | | | 0 0 0 mode 0  interrupt on terminal count
+   | | | | 0 0 1      1  progr. one shot
+   | | | | x 1 0      2  rate generator
+   | | | | x 1 1      3  square wave rate generator
+   | | | | 1 0 0      4  software triggable strobe
+   | | | | 1 0 1      5  hardware triggable strobe
+   | | | |
+   | | 0 0 read/load  0  counter latching
+   | | 0 1            1  msbyte only
+   | | 1 0            2  lsbyte only
+   | | 1 1            3  lsbyte,msbyte
+   | |
+   0 0 select counter 0  counter 0
+   0 1                1  counter 1
+   1 0                2  counter 2
+   1 1                3  illegal
+</pre>
+
+<p>De  counters  kunnen als Binairy Coded Decimal (BCD) en als  Binairy  (BIN) counter werken.  Verder zijn er 6 'operation modes':</p>
+
+<pre>
+  mode 0: interrupt on terminal count,
+       1: programmable one-shot,
+       2: rate generator,
+       3: square wave rate generator,
+       4: software triggable strobe,
+       5: hardware triggable strobe.
+</pre>
+
+<p>In  de Bondwell 12/14 worden de counters 0 en 1 gebruikt voor het genereren van  de  baudrate van de serial interfaces RS232 port A en  RS232  port  B. Daartoe  moeten  de  counters in de ('Square Wave') 'Rate  Generator  Mode' werken (Mode 2 of 3).   De counter werkt dan als 'devide by N counter':  de waarde  van de uitgangsfrequentie van de counter is  de  ingangsfrequentie, gedeeld door de ingestelde telwaarde.</p>
+
+<p>Het  lezen  van  en  het schrijven naar elke counter  kan  op  de  volgende manieren gebeuren:</p>
+
+<pre>
+  counter latching: de waarde van de counter wordt 'on the fly' (tijdens het
+                    tellen) gecopie&euml;rd naar een 'latch';
+                    lees de waarde vervolgens met een van de leesopdrachten,
+  msbyte only     : alleen het meest significante byte wordt
+
+                    geschreven/gelezen,
+  lsbyte only     : alleen het minst significante byte wordt
+
+                    geschreven/gelezen,
+  lsbyte,msbyte   : eerst wordt het minst significante byte
+                    geschreven/gelezen, dan het meest significante byte.
+</pre>
+
+<h4>2.2. Software</h4>
+
+<p>De onderstaande procedure laat zien hoe de i8253 geprogrammeerd kan worden.</p>
+
+<pre>
+procedure timer(number, mode, count, bcd : integer);  { Noot 1,2,3,4      }
+                                                      { Number: 0..2      }
+                                                      { Mode  : 0..5      }
+                                                      { Count : 0..$FFFF  }
+                                                      {   0 --> 2^16 cnts }
+                                                      { Bcd   : 0..1      }
+   const i8253_BA = 60;                          { Base address           }
+         i8253_CR = 63;                          { Control register       }
+   begin
+     port[i8253_CR] := number * 64 + 48 + mode * 2 + bcd;
+                                 { counter, load LSByte,MSByte, mode, bcd }
+
+     port[i8253_BA + number] := count mod 256;   { Least Significant Byte }
+     port[i8253_BA + number] := count div 256;   { Most  Significant Byte }
+   end;
+</pre>
+
+<h3>3. Serial interface</h3>
+
+<h4>3.1. Hardware</h4>
+
+<p>SIO control register channel A address: $40<br />
+SIO data register channel A address   : $41<br />
+SIO control register channel B address: $42<br />
+SIO data register channel B address   : $43<br /></p>
+
+<p>De Bondwell 12/14 heeft twee RS232 serial-interfaces:  RS232-A en  RS232-B. De  definitie van RS232 (V.24) beschrijft de RS232 signalen en het  gebruik van  de  pinnen  van de 25-polige D-connector (voor zover deze  pinnen  een functie toegewezen gekregen hebben).</p>
+
+<p>De  RS232  interface laat zowel synchrone als asynchrone communicatie  toe. Bij  synchrone communicatie besturen controle-signalen de  data-overdracht.</p>
+
+<p>Bij asynchrone communicatie kan de ontvanger aan de datastroom zien wat het begin  en einde van een verzonden pakket is.   In e'e'n pakket wordt maximaal een byte effectieve data verzonden.</p>
+
+<p>Een  veel  toegepaste opzet van de RS232-interface om twee computers  (Data Communication  Equipment,  DCE)  met elkaar te verbinden is  de  nul-modem. Deze  maakt alleen gebruik van de transmit- receive- en groundverbindingen, zoals hieronder is te zien.</p>
+
+<pre>
+One_side                                          Other_side
+
+transmit data         (pin 2) o___  ___o (pin 2)  transmit data
+                                  \/
+received data         (pin 3) o___/\___o (pin 3)  received data
+
+signal ground/return  (pin 7) o________o (pin 7)  signal ground/return
+</pre>
+De  transmit-data  signaalvorm ziet er als volgt uit.
+<pre>
+- startbit : dit   dient   om   de  ontvangende  zijde  te   kunnen   laten
+
+             synchroniseren met de zendende zijde,
+- databits : de eigenlijke data van het pakket (maximaal 8 databits),
+- paritybit: dit  bit  geeft de mogelijkheid de databits te testen  op  hun
+
+             correctheid; het wordt als volgt berekend:
+             even parity: '1' als de som van de databits even is,
+             odd parity : '1' als de som van de databits oneven is,
+- stopbit  : dit geeft het einde aan van het pakket (1 of meer stopbits).
+</pre>
+<p>Het startbit is een logische '0', het stopbit een logische '1'.  Wanneer er
+geen data verzonden wordt, is het transmit-data signaal '1'.</p>
+
+<p>Onderstaand figuur geeft de transmit-data signaalvorm weer.</p>
+<pre>
+__  __        __  __  __  __  __  __  __  __  __  ____  ___        __  __
+  ||  \      /  \/  \/  \/  \/  \/  \/  \/  \/  \/    ||   \      /  \/
+  ||   \____/\__/\__/\__/\__/\__/\__/\__/\__/\__/     ||    \____/\__/\__
+       start  0   1   2   3   4   5   6   7   P  stop
+       |      |                           |   |    |
+       |      |                           |   |    |__ stop-bit(s)
+       |      |                           |   |_______ parity-bit
+       |      |                           |___________ data-bit 7
+       |      |_______________________________________ data-bit 0
+       |______________________________________________ start-bit
+</pre>
+
+<p>De  snelheid  waarmee  het  transmit-data  signaal  de  afzonderlijke  bits (startbit,databits,  etc.) verzendt,  wordt uitgedrukt in de baudrate.   De baudrate  geeft  het aantal verzonden bits per seconde:  1 Baud=  1  bit/s. Hierin zijn ook de start-, parity- en stopbits meegerekend.</p>
+
+<p>In de Bondwell 12/14 wordt de RS232 interface verzorgd door de SIO. De  zend- en ontvang-klokingangen van kanaal A en B (TxCA,RxCA  en  RxTxCB) van  de SIO zijn verbonden met respectievelijk de timer/counter uitgangen 0 en  1  van  de CTC.</p>
+
+<p>Voor  elk  seri&euml;el  kanaal (RS232-A en RS232-B) heeft de  SIO  twee  direct toegankelijke registers:  het control-register en het  data-register.   Via het  control-register  (Register  0)  kunnen  nog  zeven  andere  registers (Register  1..7)  geprogrammeerd  worden  om  de  werking  van  de  SIO  te defini&euml;ren.   Het  data-register  wordt alleen gebruikt voor het lezen  van data  die  seri&euml;el ontvangen worden en het schrijven van data  die  seri&euml;el verzonden moeten worden;  het wordt dus niet gebruikt voor het programmeren van de SIO.</p>
+
+<p>Onderstaande figuren beschrijven een deel van de registers van de Z80-SIO/0.</p>
+
+<pre>
+Z80 SIO/0  Control registers
+
+   Read register 0                        Write register 0
+
+   7 6 5 4 3 2 1 0                        7 6 5 4 3 2 1 0
+   | | | | | | | |_ Rx buffer full        | | | | | | | |
+   | | | | | | |___ int. pending (Ch A)   | | | | | x x x register 0..7
+   | | | | | |_____ Tx buffer empty       | | | | |
+   | | | | |_______ DCD                   | | 0 0 0 null code
+   | | | |_________ sync/hunt             | | 0 0 1 send abort(SDLC)
+   | | |___________ CTS                   | | 0 1 0 res.ext/status interr.
+   | |_____________ Tx underrun/EOM       | | 0 1 1 channel reset
+   |_______________ break/abort           | | 1 0 0 enable Int.on nxt Rx char
+                                          | | 1 0 1 reset Tx int.pending
+                                          | | 1 1 0 error reset
+                                          | | 1 1 1 return from int.(Ch.A)
+                                          | |
+                                          0 0 null code
+                                          0 1 reset Rx CRC checker
+                                          1 0       Tx CRC checker
+                                          1 1       Tx underrun/EOM latch
+
+
+   Write register 3                       Write register 5
+
+   7 6 5 4 3 2 1 0                        7 6 5 4 3 2 1 0
+   | |           |_ Rx enable               | |   |_______ Tx enable
+   | |                                      | |
+   0 0 Rx 5 bit/char                        0 0 Tx 5 bit/char
+   0 1    7                                 0 1    7
+   1 0    6                                 1 0    6
+   1 1    8                                 1 1    8
+
+
+   Write register 4
+
+   7 6 5 4 3 2 1 0
+   | |     | | | |_ parity enable
+   | |     | | |___ parity even/oddn
+   | |     | |
+   | |     0 0 enable sync modes
+   | |     0 1   1 stopbit/char
+   | |     1 0   1.5
+   | |     1 1   2
+   | |
+   0 0 x1  clock mode
+   0 1 x16
+   1 0 x32
+   1 1 x64
+</pre>
+
+<h4>3.2. Software</h4>
+
+<p>De  SIO  kan  zowel  voor  synchrone  als  voor  asynchrone   communicatie- protocollen  gebruikt worden;  hier zal alleen beschreven worden hoe de SIO geprogrammeerd kan worden voor het RS232 asynchrone protocol.</p>
+
+<p>De te programmeren grootheden zijn:</p>
+
+<pre>
+- het aantal databits: 5..8,
+- de parity          : no,odd,even,
+- het aantal stopbits: 1..2,
+- de clock-mode      : het aantal clock-pulsen per verzonden/ontvangen bit,
+                       x1,x16,x32,x64.
+</pre>
+
+<p>De baudrate wordt bepaald door de gekozen clock-mode en door de  instelling van  counter/timer  0  voor seri&euml;el kanaal A en van  counter/timer  1  voor seri&euml;el kanaal B. Het getal (N) dat geprogrammeerd moet worden in de counter wordt als  volgt berekend (zie H2.2.):</p>
+
+<pre>
+                Fin(CTC)           1          |   [1/s]      []         |
+         N = ---------------- * --------      |  ------- * ------- = [] |
+             clock-pulses/bit   baudrate      |  [1/bit]   [bit/s]      |
+
+
+         N = 1.8432 * 10^6 / ((clock-pulses/bit) * baudrate)
+</pre>
+
+<p>Bijvoorbeeld: baudrate is 50 Baud, clock-mode is x16,<br /> dit geeft: N = 1.8432 * 10^6 / (16 * 50) = 2304  (= $900).</p>
+
+<p>Onderstaande procedure laat zien hoe de SIO geprogrammeerd kan worden.</p>
+
+<pre>
+                                                             { Noot 1,2,4 }
+
+procedure set_sio(channel,clkmode,databits,stopbits,parity : integer);
+                                 { Channel : 0..1  (channel A, channel B) }
+                                 { Clkmode : 0..3  (x1,x16,x32,64)        }
+                                 { Databits: 0..3  (5..7 databits)        }
+                                 { Stopbits: 1..3  (1,1.5,2 stopbits)     }
+                                 { Parity  : 0,1,3 (no,odd,even parity)   }
+
+   const SIO_BA = 40;                  { SIO Base Address                 }
+   var   sio_cr : integer;             { SIO Control Register             }
+   begin
+     sio_cr := SIO_BA + channel * 2;   { This channel's control register  }
+
+     port[sio_cr] := 4;                { Select register 4:               }
+     port[sio_cr] := clkmode * 64 + stopbits * 4 + parity;
+
+     port[sio_cr] := 3;                { Select register 3: Receive mode  }
+     port[sio_cr] := databits * 64 + 1;{ Databits:bit 6,7; Rx enable:bit 0}
+
+     port[sio_cr] := 5;                { Select register 5: Transmit mode }
+     port[sio_cr] := databits * 32 + 8;{ Databits:bit 5,6; Tx enable:bit 3}
+   end;
+</pre>
+
+<h3>Tot slot</h3>
+
+<p>Dit  artikel  geeft  niet het gehele scala weer aan  mogelijkheden  van  de besproken  programmable  peripheral I.C.'s.   Complete informatie  over  de besproken I.C.'s is uiteraard te vinden in de originele data-sheets.</p>
+
+M.J. Moene<br />
+Linnaeusparkweg 46-3<br />
+1098 EC  Amsterdam<br />
+Tel.:020-936378      (bij voorkeur tussen 19:00 en 20:00 uur)<br />
+<dl>
+<dt>Noot 1:</dt>
+  <dd>Om  een 'bitwise OR' van twee getallen te bepalen,  wordt  de  +-operator
+  gebruikt;  dit  kan  alleen wanneer de getallen geen '1'-en  op  dezelfde
+  bitpositie hebben: 1+3=4  <>  1 'bitwise OR' 3=3.</dd>
+
+<dt>Noot 2:</dt>
+  <dd>Voor het verschuiven van een aantal bits in een getal wordt de *-operator
+  gebruikt: 2*1=2  =  1 "schuif-links" 1 bitpositie.</dd>
+
+<dt>Noot 3:</dt>
+  <dd>Voor het scheiden van een integergetal in het 'most significant byte'  en
+  het  'least  significant  byte' wordt in de programmavoorbeelden  van  de
+  volgende methode gebruik gemaakt:<br />
+  <br />
+  most_significant_byte  = getal / 256,<br />
+  least_significant_byte = getal modula 256     (=getal - (getal/256)*256).</dd>
+
+<dt>Noot 4:</dt>
+  <dd>De  programmavoorbeelden zijn geschreven in de Turbo-Pascal implementatie
+  van Pascal.   Door het gebruik van het port-array (port[n]) voor port-I/O
+  voldoen bovenstaande voorbeelden niet aan de definitie van Pascal: op dit
+  punt kunnen er dus verschillen bestaan met andere Pascal-compilers.</dd>
+</dl>
+<p class="center">                           o-o-o-o-o-o-o-o-o-o-o</p>
+
+<h3>Correcties</h3>
+
+<p>In  het  artikel  "Bondwell  12/14  Programmable  Peripheral  I.C.'s."   in Bondwell/ELCI-gg mededelingen, nummer 1, oktober 1987, staan enige fouten:</p>
+
+<dl>
+<dt>- pagina 7/8, (...DCE):</dt>
+     <dd>(Data Communication Equipment, DCE) moet zijn:<br />
+     (Data Terminal Equipment, DTE),<br />
+     [Terminal, computer: DTE; modem is bv. DCE].</dd>
+
+<dt>- pagina 12, - paritybit: moet zijn:</dt>
+     <dd>even parity: '1' als de som van de databits oneven is,<br />
+     odd parity : '1' als de som van de databits even is.</dd>
+
+<dt>- pagina 14, procedure set_sio:</dt>
+     <dd>{ databits: 0..3 (5..7 databits) } moet zijn:<br />
+     { databits: 0..3 (5..8 databits) }.</dd>
+
+<dt>- pagina 15,  Noot 4:</dt>
+     <dd>getal/256: '/' bedoeld is integer-deling (:),<br />
+     modula moet zijn modulo. </dd>
+</dl>
+
+<p>M.J. Moene<br /></p>
+
+<p class="center">                         o------o------o</p>
+

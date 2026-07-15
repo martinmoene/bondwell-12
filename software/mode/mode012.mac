@@ -1,0 +1,1094 @@
+	title	MODE
+
+
+;				M O D E . M A C
+	page	88
+;-------------------------------------------------------------- Mode.mac ------
+;
+;	MODE.MAC
+;
+;	Bondwell 12/14  Serial port initialization program
+;
+;	Copyright (C)	1987	M.J. Moene
+;				1098 EC 46
+;
+;	Program derived from:	Mode.c by M.J. Moene, 1986
+;
+;
+;	Use:	D>Mode com1:300[,N[,7[,1]]]
+;
+;
+;	Version 0.12		Baudtab: 300bd 80H --> 180H;
+;	 16 feb 1987		  error removed in iniser(): baudtab access.
+;
+;	Version 0.11		Refinements in various routines and comments.
+;	 15 feb 1987
+;
+;	Version 0.10		Setup completed.
+;	 11 feb 1987
+; 
+;	Version	0.00		Setup.
+;	  1987-02-01
+;
+
+	.Z80
+	aseg
+	subttl	Mode: Constants & variables
+IF1
+	.printx	Generating Bondwell 12/14 
+	.printx	Serial Port initialization program MODE.
+ENDIF
+
+; Port addresses
+SERIO	equ	40H		; SIO 
+TIMER	equ	60H		; Timer 8253
+
+COM1	equ	0		; code for port used, iniser
+COM2	equ	1		; 
+
+COM1CTR equ	SERIO+1		; COM1 control reg. address
+COM2CTR equ	SERIO+3		; COM2    ,,
+COM1TIM	equ	TIMER		; COM1 timer register address
+COM2TIM	equ	TIMER+1		; COM2   ,,
+
+; Return codes of iniser()
+SEROK	equ	0		; No error
+SERNSER	equ	1		; Error in portnumber
+SERSPD	equ	2		;          baudrate
+SERBPC	equ	3		;          bits per character
+SERSTB	equ	4		;          stopbits
+SERPAR	equ	5		;          parity
+
+
+CMDLIN	equ	80H		; Commandline: len,char...
+STACK	equ	stackb+64	; 32 level stack at end of code
+BDOS	equ	5		; Bdos entry
+PCHR	equ	2		; Bdos print character function
+PSTR	equ	9		; Bdos print string function
+CR	equ	0dH		; Carriage return code
+LF	equ	0aH		; Linefeed code
+
+	page
+	org	100H		; CP/M programs start here
+	jp	main		;   skip data & variable area 
+
+	db	'<(C) Copyright 1987 M.J. Moene>'
+
+prognam:db	'MODE',0	; program name for error message
+empstr	equ	$-1		; empty string
+
+
+; Commandline arguments
+;   char argc= 1, *argv0..*argv5= empstr;
+
+argc:	db	1		; argument count	(char)
+argv0:	dw	prognam		; argument pointers	(char *)
+argv1:	dw	empstr
+argv2:	dw	empstr
+argv3:	dw	empstr
+argv4:	dw	empstr
+argv5:	dw	empstr
+
+
+; Global variables filled with commandline information
+;   char port= 0, baud= 300, datb= 7, stpb= 1, pary= 'N';
+
+port:	db	COM1		; portnumber: 0..1
+baud:	dw	300		; default baudrate
+datb:	db	7		;   # databits
+stpb:	db	1		;   # stopbits
+pary:	db	'N'		; parity: 'n', 'o', 'e'
+
+; Local variables of iniser()
+prt:	ds	1		; portnumber (=port)
+count:	ds	2		; Timer count value
+bpc:	ds	1		; Bits Per Character
+stb:	ds	1		; STopBits
+par:	ds	1		; PARity
+seradd:	ds	1		; port address of serial port
+timadd:	ds	1		; port address of timer count register
+
+oldsp:	ds	2		; CCP stackpointer value saved here
+
+
+; Error messages (addresses of) 
+errtab:	dw	err0,err1,err2,err3,err4,err5
+
+err0:	db	'No error.',0
+err1:	db	'(serial port).',0
+err2:	db	'(baudrate).',0
+err3:	db	'(bits per character).',0
+err4:	db	'(stopbits).',0
+err5:	db	'(parity).',0
+
+	page
+namtab:	db	'COM1', 0,0	; Serial-port name, '\0', portnumber
+	db	'COM2', 0,1
+	db	'SER1', 0,0
+	db	'SER2', 0,1
+	db	'PTR',0,0,0
+	db	'RDR',0,0,0
+	db	'UR1',0,0,0
+	db	'UP1',0,0,0
+	db	'UR2',0,0,1
+	db	'UP2',0,0,1
+namtabx:
+
+SIZNAM	equ	5		; # characters in portname (terminating 0 incl.)
+SIZTAB	equ	(namtabx-namtab)/(SIZNAM+1)
+
+
+portab:	db	COM1,COM2	; Serial portnumbers
+portabx:
+
+portab1:db	COM1CTR,COM1TIM	; Serial port control addr., timer counter reg.
+	db	COM2CTR,COM2TIM
+
+
+; Baudrates
+baudtab:dw	50, 75, 110, 150, 300, 600, 1200, 2400, 4800, 9600, 19200
+baudtabx:
+
+baudtab1:			; Baudrate timer count values
+	dw	900H		;    50 baud
+	dw	600H		;    75
+	dw	417H		;   110
+	dw	300H		;   150
+	dw	180H		;   300
+	dw	0C0H		;   600
+	dw	 60H		;  1200
+	dw	 30H		;  2400
+	dw	 18H		;  4800
+	dw	 0CH		;  9600
+	dw	  6H		; 19200
+
+                                
+dattab:	db	5, 6, 7, 8      ; Databits
+dattabx:                        
+                                
+dattab1:db	0, 2, 1, 3      ; Databits-code
+
+
+stptab:	db	0, 1, 2		; Stopbits
+stptabx:
+
+stptab1:db	0, 1, 3		; Stopbits-code
+
+                                
+partab:	db	'NOE'           ; Parity
+partabx:                        
+
+partab1:db	0, 1, 3		; Parity-code
+
+	subttl	Mode: Program
+	page
+;------------------------------------------------------------------ Main ------
+;
+;	MAIN
+;
+;	Define new stack,
+;	Determine commandline arguments,
+;	Initialize serial port,
+;	If error: print error message
+;	  else: print what has been done,
+;	Restore old stack.
+;
+
+main:
+	ld	hl,0		; save current stackpointer
+	add	hl,sp
+	ld	(oldsp),hl
+	ld	hl,STACK	; define new stack
+	ld	sp,hl
+
+	call	arg		; determine arguments from command line
+	call	iniser		; initialize serial port
+
+	cp	0		;   error?
+	jp	nz,error	;     yes: Reg.a has error-code (jp mainx)
+	call	result		;     no: print what has been done
+mainx:
+	ld	hl,(oldsp)	; restore stackpointer
+	ld	sp,hl
+	ret			; return to CCP
+
+
+;-------------------------------------------------------------- Argument ------
+;
+;	ARGUMENT
+;
+;	Determine arguments from commandline.
+;
+;	Input:	none
+;	Output:	none
+;
+;	Reg. used:	ix,iy,af,c,e,hl
+;	Reg. affected:	ix,iy,af,c,e,hl
+;
+;	Var. global:	argc, arv0..argv5,
+;			port, baud, datb, stpb, pary.
+;	Var. local:	none
+;
+;
+;	arg()
+;	{
+;	  char n=  CMDLIN[0];
+;	  char *p= &CMDLIN[1];
+;
+;	  while(n>0 && argc<6) {
+;	    while(n && *p==' ') { p++; n--; }
+;	    if(n) argv[argc++]= p;
+;	    while(n && !ispunct(*p)) { p++; n--; }
+;	    *p++= '\0';
+;	    n--;
+;	  }
+;	  if(argc<3) error(0);
+;	  switch(argc) {
+;	    case 6: stpb= atoi(argv5);
+;	    case 5: datb= atoi(argv4);
+;	    case 4: pary= argv3[0];
+;	  }
+;	}
+;
+
+arg:	ld	ix,argv1	; ix points to argument pointers
+	ld	iy,argc		; iy points to argument count
+	ld	hl,CMDLIN	; hl points to commandline
+	ld	a,(hl)		; len(cmdlin)
+	ld	e,a
+	inc	hl		; point to first character
+arg1:
+	ld	a,e		; while(n>0 && argc<6) { }
+	or	a		; characters left?
+	jp	z,arg6		;   no: exit
+	jp	m,arg6		;   no: exit (negative)
+	ld	a,(iy)		; argc==6?
+	cp	6
+	jp	z,arg6		;   yes: skip
+arg2:
+	ld	a,e		; while (n && *p==' ')
+	or	a
+	jr	z,arg3		;   (n==0)
+
+	ld	a,(hl)
+	cp	' '
+	jr	nz,arg3		;   (*p!=' ')
+	inc	hl		;   p++;
+	dec	e		;   n--;
+	jr	arg2		; next character
+arg3:
+	ld	a,e		; if (n)
+	or	a
+	jr	z,arg4		;   (n==0)
+	ld	(ix),l		; 
+	ld	(ix+1),h
+	inc	ix		; { argv[argc++]= p; }
+	inc	ix
+	inc	(iy)		;   (argc++)
+arg4:
+	ld	a,e		; while (n && !ispunct(*p)) { p++; n--; }
+	or	a
+	jr	z,arg5
+	ld	a,(hl)
+	call	ispunct		; ispunct?
+	jr	c,arg5		;   yes: skip
+	inc	hl		;   no: next character
+	dec	e
+	jr	arg4
+arg5:
+	ld	a,0		; *p= '\0';
+	ld	(hl),a
+	inc	hl		; p++;
+	dec	e		; n--;
+	jr	arg1		; end while(n>0 && argc<6) { }
+
+; Store arguments in variables
+arg6:	
+	ld	a,(argc)	; argc<3?
+	cp	3
+	jr	nc,arg7		;   no: skip
+	ld	a,0		;   yes: error(0);
+	jp	error		;        exit(-1);
+arg7:
+	call	getcom		; get portnumber
+	ld	(port),a
+
+	ld	hl,(argv2)	; baudrate
+	call	atoi
+	ld	(baud),hl
+
+; Switch(argc)
+	ld	a,(argc)
+	cp	6		; case 6: stpb= atoi(argv5);
+	jr	z,arg8
+	cp	5		; case 5: datb= atoi(argv4);
+	jr	z,arg9
+	cp	4		; case 4: pary= argv3[0];
+	jr	z,arg10
+	jr	arg11		; none of the above: skip
+arg8:
+	ld	hl,(argv5)	; Stopbits
+	call	atoi
+	ld	a,l
+	ld	(stpb),a	; (no break instruction)
+arg9:
+	ld	hl,(argv4)	; Databits
+	call	atoi
+	ld	a,l
+	ld	(datb),a	; (no break instruction)
+arg10:
+	ld	hl,(argv3)	; Parity
+	ld	a,(hl)
+	ld	(pary),a	; (no break insrtuction)
+arg11:
+argx:
+	ret
+
+	page
+;---------------------------------------------------------------- Getcom ------
+;
+;	GETCOM
+;
+;	Convert portname (argv1) to portnumber.
+;
+;	Input:
+;		none
+;	Output:
+;		Reg.a: portnumber
+;
+;	Reg. used:	af, c, de, hl
+;	Reg. affected:	af
+;
+;	Var. global:	argv1
+;	Var. local:	none
+;
+;
+;	struct {
+;	  char *nam, code;
+;	}= {
+;	   {"COM1", 0}, {"COM2", 1}, {"SER1", 0}, {"SER2", 1}, 
+;	   {"PTR",  0}, {"RDR",  0}, {"UR1",  0}, {"UP1",  1},
+;	   {"UR2",  1}, {"UP2",  1}
+;	}
+;
+;
+;	getcom()
+;	{
+;	  int n;
+; 
+;	  for(n=0; n<sizeof(namtab); n++)
+;	    if (strcmp(argv1, namtab[n].nam)== 0) return namtab[n].code;
+;	  return -1;	/* not found */
+;	}
+;
+
+getcom:	push	bc		; save used registers
+	push	de
+	push	hl
+	ld	c,SIZTAB	; size of namtab (names of ports)
+	ld	hl,namtab
+getcom1:
+	ld	de,(argv1)	; portname
+	call	strcmp
+	cp	0		; equal strings?
+	jr	z,getcom2	;   yes:
+	ld	de,SIZNAM+1	;   no:
+	add	hl,de		;      hl points to next string
+	dec	c		;   all had?
+	jr	nz,getcom1	;     no: next entry
+	ld	a,-1		;     yes: not found
+	jr	getcomx
+getcom2:
+	ld	de,SIZNAM
+	add	hl,de		; equal strings
+	ld	a,(hl)		; a <-- portnumber
+getcomx:
+	pop	hl		; restore used registers
+	pop	de
+	pop	bc
+	ret			; return
+
+	page
+;---------------------------------------------------------------- Iniser ------
+;
+;	INISER
+;
+;	Initialize serial port.
+;
+;	Input:	none
+;	Output:	none
+;
+;	Reg. used:	af, bc, de, hl, ix
+;	Reg. affected:	af, bc, de, hl, ix
+;
+;	Var. global:	port, baud, datb, stpb, pary
+;	Var. local:	prt, seradd, timadd, count, bpc, stb, par
+;
+;
+;	iniser()
+;	{
+;	  char n;
+;
+;	  switch(port) {
+;	    case 0: break;
+;	    case 1: break;
+;	    default: return SERNSER;
+;	  }
+;	  seradd= portab1[port].ser; timadd= portab1[port].tim;
+;
+;	  switch(baud) {
+;	    case 50: count= 0x900; break;
+;	    ...
+;	    default: return SERSPD;
+;	  }
+;
+;	  switch(datb) {
+;	    case 5: break;
+;	    case 6: break;
+;	    case 7: break;
+;	    case 8: break;
+;	    default: return SERBPC;
+;	  }
+;	  bpc= dattab1[datb-5];
+;
+;	  switch(stpb) {
+;	    case 0: break;
+;	    case 1: break;
+;	    case 2: break;
+;	    default: return SERSTB;
+;	  }
+;	  stb= stptab1[stpb];
+;
+;	  switch(pary) {
+;	    case 'N': n= 0; break;
+;	    case 'O': n= 1; break;
+;	    case 'E': n= 2; break;
+;	    default : return SERPAR;
+;	  }
+;	  par= partab1[n];
+;
+;	  outp(seradd, 4);
+;	  outp(seradd, (int) (stb<<2 | par | 0x40));
+;	  outp(seradd, 3);
+;	  outp(seradd, (int) (bpc<<6 | 1));
+;	  outp(seradd, 5);
+;	  outp(seradd, (int) (bpc<<5 | 8));
+;
+;	  outp(TIMER+3, (int) (prt<<6 | 0x36));
+;	  outp(timadd, (int) (LOW count));
+;	  outp(timadd, (int) (HIG count));
+;
+;	  return SEROK;
+;	}
+;
+
+; Switch(port)
+iniser:	ld	hl,portab	; list of ports
+	ld	bc,portabx-portab; #bytes
+
+	ld	a,(port)	; switch(port)
+	ld	(prt),a		; save portnumber locally
+	cpir			; a=(hl)?  (hl++,bc--)
+	dec	hl		; adjust hl
+	cp	(hl)		; found?
+	jr	z,iniser2	;   yes:
+	ld	a,SERNSER	;   no: return error
+	jp	iniserx		; return
+iniser2:
+	scf			; clear the
+	ccf			;   carry flag
+	ld	de,portab
+	sbc	hl,de		; hl= index
+	add	hl,hl		; hl*2 (two byte/entry)
+	ex	de,hl		; (ix += de)
+	ld	ix,portab1	; port control reg.addr & timer count reg.addr
+	add	ix,de
+	ld	a,(ix)
+	ld	(seradd),a	; save serial port control reg.address
+	ld	a,(ix+1)
+	ld	(timadd),a	; save timer count reg.address
+
+; Switch(baud)
+	ld	ix,baudtab	; de points to table with possible baudrates
+	ld	bc,baudtabx-baudtab	; #bytes in table
+iniser3:
+	scf			; clear the
+	ccf			;   the carry flag
+	ld	hl,(baud)	; get wanted baudrate
+	ld	e,(ix)		; get table baudrate value
+	ld	d,(ix+1)
+	sbc	hl,de		; found baudrate?
+	jr	z,iniser4	;   yes: get address from table
+				;   no: next
+	inc	ix		; next table entry
+	inc	ix
+	dec	bc		; two bytes/baudrate
+	dec	bc
+	ld	a,c		; end of table?
+	or	b
+	jr	nz,iniser3	;   no: next
+	ld	a,SERSPD	;   yes: return error
+	jp	iniserx		; return
+iniser4:			; count= *(ix + offset);
+	ld	de,baudtab1-baudtab
+	add	ix,de
+	ld	a,(ix)		; get count lsb
+	ld	(count),a
+	ld	a,(ix+1)	; get count msb
+	ld	(count+1),a
+
+; Switch(datb)
+	ld	hl,dattab
+	ld	bc,dattabx-dattab
+
+	ld	a,(datb)
+	cpir			; a=(hl)?  (hl++, bc--)
+	dec	hl
+	cp	(hl)		; found?
+	jr	z,iniser5	;   yes:
+	ld	a,SERBPC	;   no: return error
+	jp	iniserx		; return
+iniser5:
+	ld	de,dattab1-dattab  ; bpc= *(hl + offset);
+	add	hl,de
+	ld	a,(hl)
+	ld	(bpc),a
+
+; Switch(stopbits)
+	ld	hl,stptab
+	ld	bc,stptabx-stptab  ; # bytes
+	ld	a,(stpb)
+	cpir			; a=(hl)?  (hl++, bc--)
+	dec	hl		; adjust hl
+	cp	(hl)		; found?
+	jr	z,iniser6	;   yes:
+	ld	a,SERSTB	;   no: return error
+	jp	iniserx		; return
+iniser6:
+	ld	de,stptab1-stptab  ; stb= *(hl + offset)
+	add	hl,de
+	ld	a,(hl)
+	ld	(stb),a
+
+; Switch(parity)
+	ld	a,(pary)	; get parity
+	call	toupper
+
+	ld	hl,partab
+	ld	bc,partabx-partab
+
+	cpir			; a=(hl)?  (hl++, bc--)
+	dec	hl		; adjust hl
+	cp	(hl)		; found?
+	jr	z,iniser7	;   yes: 
+	ld	a,SERPAR	;   no: return error
+	jp	iniserx		; return
+iniser7:
+	ld	de,partab1-partab  ; par= *(hl + offset)
+	add	hl,de
+	ld	a,(hl)
+	ld	(par),a
+
+
+; Initialize SIO
+	ld	a,(seradd)	; c= seradd
+	ld	c,a
+
+;   Stopbits, parity, x16 clock mode
+	ld	a,(stb)		; control= stb<<2 | par | 0x40;
+	sla	a		; a<<2
+	sla	a
+	ld	b,a		; save a
+	ld	a,(par)
+	ld	e,a
+	ld	a,b		; restore a
+	or	e
+	or	40H
+	ld	e,4		; select reg.4
+	out	(c),e
+	out	(c),a		; init reg.4
+
+;    bpc: bit 6,7 Rx enable: bit 0
+	ld	a,(bpc)		; control= bpc<<6 | 1;
+	sla	a
+	sla	a
+	sla	a
+	sla	a
+	sla	a
+	sla	a
+	or	1
+	ld	e,3		; select reg.3
+	out	(c),e
+	out	(c),a		; init reg.3
+
+;    bpc: bit 5,6, Tx enable: bit 3
+	ld	a,(bpc)		; control= bpc<<5 | 8;
+	sla	a
+	sla	a
+	sla	a
+	sla	a
+	sla	a
+	or	8
+	ld	e,5		; select reg.5
+	out	(c),e
+	out	(c),a		; init reg.5
+
+; Initialize Timer 8253
+	ld	a,(prt)		; control= prt<<6 | 0x36;
+	sla	a
+	sla	a
+	sla	a
+	sla	a
+	sla	a
+	sla	a
+	or	36H
+	ld	c,TIMER+3	; Timer control register
+	out	(c),a
+	ld	a,(timadd)	; get timer counter address
+	ld	c,a
+	ld	a,(count)	; load lsbyte
+	out	(c),a
+	ld	a,(count+1)	; load msbyte
+	out	(c),a
+
+	ld	a,SEROK		; return: No error
+iniserx:
+	ret			; return
+
+	page
+;----------------------------------------------------------------- Error ------
+;
+;	ERROR
+;
+;	Input:
+;		Reg.a: error number
+;	Output:
+;		none
+;
+;	Reg. used:	af, bc, de, ix
+;	Reg. affected:	af, bc, de, ix
+;
+;	Var. global:	none
+;	Var. local:	none
+;
+;
+;	error(n)
+;	int n;
+;	{
+;	  if(n) printf("\nError: Illegal argument value; %s", errtab[n]);
+;	  printf("\nUse:   %s COM1:300[,N[,7[,1]]]\n\n", argv1);
+;	  exit(-1);
+;	}
+;
+
+error:	cp	0		; error code= 0?
+	jr	z,error1	;   yes: skip
+	push	af		; save error code
+	call	ilprnt		; in-line print
+	db	CR,LF,'Error: Illegal argument value; ',0
+	ld	ix,errtab	; hl points to table with addresses of error messages
+	ld	b,0		; index into table
+	pop	af		; restore error code
+	ld	c,a
+	sla	c		; two bytes/entry
+	rl	b
+	add	ix,bc
+	ld	e,(ix)		; get string address in de
+	ld	d,(ix+1)
+	call	puts		; Print function
+error1:
+	call	ilprnt
+	db	CR,LF
+	db	'Use:   ',0
+	ld	ix,argv0	; print program name
+	ld	e,(ix)
+	ld	d,(ix+1)
+	call	puts
+	call	ilprnt
+	db	' COM1:300[,N[,7[,1]]]'
+	db	CR,LF,LF,0	; 2 new lines
+	jp	mainx		; exit(-1);
+
+	page
+;---------------------------------------------------------------- Result ------
+;
+;	RESULT
+;
+;	Print what is extracted from the commandline.
+;	Only valid reproduction if no illegal data present
+;	in commandline.
+;
+;	Input:	none
+;	Output:	none
+;
+;	Reg. used:	a, de
+;	Reg. affected:	a, de
+;
+;	Var. Global:	argv0..argv2, pary, datb, stpb
+;	Var. Local:	none
+;
+;	result()
+;	{
+;	  printf("\n%s %s:%s,%c,%1d,%1d\n\n", argv0, argv1, argv2,
+;						       pary, datb, stpb);
+;	}
+
+result:	
+	call	ilprnt		; new line
+	db	CR,LF,0
+	ld	ix,argv0	; print program name
+	ld	e,(ix)
+	ld	d,(ix+1)
+	call	puts
+	ld	a,' '		; space
+	call	putchar
+
+	ld	de,(argv1)	; portname
+	call	puts
+	ld	a,':'
+	call	putchar
+	ld	de,(argv2)	; baudrate
+	call	puts
+	ld	a,','
+	call	putchar
+	ld	a,(pary)	; parity
+	call	putchar
+	ld	a,','
+	call	putchar
+	ld	a,(datb)	; databits
+	add	a,'0'
+	call	putchar
+	ld	a,','
+	call	putchar
+	ld	a,(stpb)	; stopbits
+	add	a,'0'
+	call	putchar
+	call	ilprnt		; 2 new lines
+	db	CR,LF,LF,0
+	ret			; return
+
+
+	subttl	Mode: Character functions
+	page
+;---------------------------------------------------------- Inline print ------
+;
+;	ILPRNT
+;
+;	Print text following this subroutine call and ending with '\0'.
+;
+;	Input:	none
+;	Output:	none
+;
+;	Reg. used:	af, hl
+;	Reg. affected:	af
+;
+;	Var. global:	none
+;	Var. local:	none
+;
+
+ilprnt:	
+	ex	(sp),hl		; get address of string
+ilprnt1:
+	ld	a,(hl)		; get text
+	call	putchar
+	inc	hl
+	ld	a,(hl)
+	or	a
+	jr	nz,ilprnt1
+	ex	(sp),hl
+	ret
+
+
+;------------------------------------------------------------------ Puts ------
+;
+;	PUTS
+;
+;	Print a string, terminated with '\0'.
+;
+;	Input:
+;		Reg.de:	address of string
+;	Output:
+;		none
+;
+;	Reg. used:	af, de
+;	Reg. affected:	none
+;
+;	Var. global:	none
+;	Var. local:	none
+;
+;
+;	puts(s)
+;	char *s;
+;	{
+;	  while(*s) putchar(*s--);
+;	}
+;
+
+puts:	push	af		; save used registers
+	push	de
+puts1:
+	ld	a,(de)
+	cp	0		; end of string?
+	jr	z,putsx
+	call	putchar
+	inc	de		; next character
+	jr	puts1
+putsx:
+	pop	de		; restore used registers
+	pop	af
+	ret
+
+	page
+;--------------------------------------------------------------- Putchar ------
+;
+;	PUTCHAR
+;
+;	Print a character.
+;
+;	Input:
+;		reg.A:	character
+;	Output:
+;		none
+;
+;	Reg. used:	a, c, e
+;	Reg. affected:	none
+;
+;	Var. global:	none
+;	Var. local:	none
+;
+
+putchar:
+	push	af		; save used registers
+	push	bc
+	push	de
+	push	hl
+	ld	c,PCHR		; bdos print character function
+	ld	e,a
+	call	BDOS		; print character
+	pop	hl		; restore used registers
+	pop	de
+	pop	bc
+	pop	af
+	ret			; return
+
+	page
+;--------------------------------------------------------------- Toupper ------
+;
+;	TOUPPER
+;
+;	Convert characters from 'a'..'z' to 'A'..'Z'
+;
+;	Input:
+;		reg.A: character
+;	Output:
+;		reg.A: character
+;
+;	Reg. used:	af
+;	Reg. affected:	f
+;
+;	Var. global:	none
+;	Var. local:	none
+;
+
+toupper:
+	cp	'a'		; a < 'a'
+	jr	c,toupperx	;   yes: return
+	cp	'z'+1		; a > 'z'
+	jr	nc,toupperx	;   yes: return
+	add	a,'A'-'a'	; (negative constant)
+toupperx:
+	ret
+
+
+;--------------------------------------------------------------- Ispunct ------
+;
+;	ISPUNCT
+;
+;	Check for punctuation character.
+;
+;	Input:
+;		Reg.a:	character
+;	Output:
+;		Carry flag set if ispunct otherwise carry is reset
+;
+;	Reg. used:	af
+;	Reg. affected:	f
+;
+;	Var. global:	none
+;	Var. local:	none
+;
+
+ispunct:
+	cp	' '		; >= ' ' ?
+	jr	c,ispunct1	;   no:
+	cp	'/'+1		; <= '/' ?
+	jr	c,ispunct2	;   yes: punctuation char.
+ispunct1:
+	cp	':'		; >= ':' ?
+	jr	c,ispunct3	;   no:
+	cp	'@'+1		; <= '@'
+	jr	nc,ispunct3	;   no: no punctuation char.
+ispunct2:
+	scf			; set carry
+	ret
+ispunct3:
+	scf			; reset carry
+	ccf
+	ret
+
+	page
+;---------------------------------------------------------------- Strcmp ------
+;
+;	STRCMP
+;
+;	Input:
+;		Reg.hl:	address of string1
+;		Reg.de:	address of string2
+;	Output:
+;		Reg.a:	0 if strings are equal; (*hl-*de) if unequal
+;
+;	Reg. used:	af, de, hl
+;	Reg. affected:	af
+;
+;	Var. global:	none
+;	Var. local:	none
+;
+;
+;	strcmp(s1,s2)
+;	char *s1,s2;
+;	{
+;	  char *p1=s1,*p2=s2;
+;	  while(*p1 && *p2 && *p1==*p2) {p1++; p2++;}
+;	  return(*p1 - *p2);
+;	}
+;
+
+strcmp:	push	hl		; save string pointers
+	push	de
+strcmp1:
+	ld	a,(hl)
+	cp	0		; end of string1?
+	jr	z,strcmpx	;   yes: exit
+	ld	a,(de)
+	cp	0		; end of string2?
+	jr	z,strcmpx	;   yes: exit
+	cp	(hl)		; *hl == *de ?
+	jr	nz,strcmpx	;   no: next character
+	inc	de		;   yes: inc pointers
+	inc	hl		; 
+	jr	strcmp1		;   next character
+strcmpx:
+	ld	a,(de)		; return(*hl - *de);
+	cpl			; two's complement of reg.a
+	add	a,1
+	add	a,(hl)
+	pop	de		; restore string pointers
+	pop	hl
+	ret			; return
+
+
+	subttl	Mode: Conversion ascii string --> integer
+	page
+;------------------------------------------------------------------ Atoi ------
+;
+;	ATOI
+;
+;	Convert an ascii string ending with '\0' to an integer
+;
+;	Input:
+;		Reg.hl:	pointer to string
+;	Output:
+;		Reg.hl: value
+;
+;	Reg. used:	af, de, hl, ix
+;	Reg. affected:	hl
+;
+;	Var. global:	none
+;	Var. local:	see stack
+;
+;	Stack:
+;		| Rl | Rh | de | af | ix | pc |
+;		| ix |  1 |    |    |    |    |
+;
+;
+;	atoi(s)
+;	char *s;
+;	{
+;	  int R=0;
+;
+;	  while(*s >= '0'  &&  *s <= '9')
+;	  {
+;	    R= 10 * R + *s-'0';
+;	    s++;
+;	  }
+;	  return R;
+;	}
+;
+
+atoi:	push	ix		; save used registers
+	push	af
+	push	de
+
+	dec	sp		; reserve local storage
+	dec	sp
+
+	ld	ix,0		; ix points to local storage
+	add	ix,sp
+
+	ld	(ix),0		; clear result buffer
+	ld	(ix+1),0
+atoi2:
+	ld	a,(hl)		; while(*s>='0' && *s<='9') {
+	cp	'0'
+	jr	c,atoi3
+	cp	'9'+1
+	jr	nc,atoi3
+
+	push	hl		; save character pointer
+
+	add	a,-'0'		;   c-'0'
+
+	sla	(ix)		;   2 * value
+	rl	(ix+1)
+
+	ld	l,(ix)		;   + 8 * value
+	ld	h,(ix+1)
+	sla	l
+	rl	h
+	sla	l
+	rl	h
+
+	ld	e,(ix)
+	ld	d,(ix+1)
+	add	hl,de
+	ld	e,a		;    + c-'0'
+	ld	d,0
+	add	hl,de
+
+	ld	(ix),l
+	ld	(ix+1),h	
+
+	pop	hl
+	inc	hl		; s++;
+	jr	atoi2
+
+atoi3:
+	ld	l,(ix)		; return R;
+	ld	h,(ix+1)
+
+	inc	sp		; release local storage
+	inc	sp
+
+	pop	de		; restore used registers
+	pop	af
+	pop	ix
+
+	ret
+
+
+stackb:				; begin of stack (stack equ stackb+64)
+
+	subttl	Mode: Symbol table
+	end
+
+

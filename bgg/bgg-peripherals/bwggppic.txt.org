@@ -1,0 +1,631 @@
+.mt0
+.mb7
+.pl66
+.po20 (12)
+.po2
+.foBondwell-GG        28 sep 1987       BW12/14 Progr.Periph.       Pagina #  
+Bondwell_12/14__Programmable_Peripheral_I.C.'s.
+
+door  M.J. Moene
+
+
+Eeî  computeò ontleenô eeî deeì vaî zijî gebruiksmogelijkhedeî aaî då oğ då 
+processoò aangesloteî peripheraì I.C.'s.
+Diô  artikeì  beschrijfô då werkinç eî programmerinç vaî eeî  deeì  vaî  då 
+peripheraì I.C.'ó vaî då Bondwelì 12/14.
+
+
+Globale opbouw van de Bondwell 12/14:
+
++-----+         +-----+      +-------------------------------+
+|VIDEO|---------|CRTC |------| Video output                  |
++-----+         +-----+      +-------------------------------+
+| RAM |            |
++-----+    +-------+         +-------------------------------+
+   |       |             +---| Keyboard interface            |
++-----+    |    +-----+  |   +-------------------------------+
+| CPU |----+----| PIA |--+
++-----+    |    +-----+  |   +-------------------------------+
+           |       |     +---| Centronics parallel interface |  
+           |       |         +-------------------------------+ 
+           |    +-----+
+           +----| CTC |
+           |    +-----+
+           |       |
+           |    +-----+      +-------------------------------+
+           +----| SIO |------| RS232 serial interface  (2 x) |
+           |    +-----+      +-------------------------------+
+           |
+           |    +-----+      +-------------------------------+
+           +----| FDC |------| floppy-diskdrive        (2 x) |
+           |    +-----+      +-------------------------------+
+           |
+           |    +-----+      +-------------------------------+
+           +----| DAC |------| Audio output                  |
+           |    +-----+      +-------------------------------+
+           |
+           +--- I/O address & data lines
+
+
+Naam   Functie                 I.C.       I/O Adres   Hoofdstuk
+                                   
+CRTC   Video-controller        MC6845     $10..$11    H 1.
+CTC    Counter-timer           i8253      $60..$63    H 2.
+SIO    Serial interface        Z80 SIO    $40..$43    H 3.
+PIA    Parallel interface      MC6821     $3C..$3F    Niet behandeld
+FDC    Floppydisk-controller   uPD765     $20..$21    Niet behandeld
+DAC    Audio output            MC1408     $50         Niet behandeld
+
+
+1.__Video-controller
+
+1.1.__Video-controller_hardware
+
+CRTC control register address: $10
+CRTC data register address   : $11
+ŠDå  video-controlleò  dienô oí vaî då iî då video-buffeò  opgeslageî  ASCIÉ 
+karakteró eeî signaaì tå makeî daô geschikô ió vooò då video-monitor®   Heô 
+I.C® genereerô bovendieî då signaleî diå nodiç zijî vooò då cursor.
+
+Då  ASCIÉ karakteró uiô då video-buffeò wordeî meô behulğ vaî eeî karakter-
+ROÍ  omgezeô  iî  eeî 'doô matrix§ signaal¬  waaraaî  tevenó  då  benodigdå 
+horizontalå eî verticalå synchronisatie-signaleî toegevoegä worden.
+
+Då  video-buffeò  ió eeî speciaaì deeì vaî heô geheugeî daô zoweì  vooò  då 
+processoò aló vooò då video-controlleò toegankelijë is®   Då buffeò ió tweå 
+kilobytå  (204¸ byte© grooô eî beginô oğ geheugenadreó  $F800®   Heô  beelä 
+bevaô 2µ regeló ø 8° karakters/regeì ½ 200° karakters¬  zodaô då laatstå 4¸ 
+bytå vaî då buffeò ongebruikô zijn.
+Meô  då video-controlleò MÃ 684µ ió heô iî principå mogelijë  oí  hardware-
+scrollinç eî -paginç toå tå passen®  Doordaô då video-buffeò beperkô ió toô 
+e'e'î pagina¬ ió diô vooò då Bondwelì 12/1´ nieô mogelijk.
+
+Då video-controlleò MÃ 684µ heefô twee direcô toegankelijkå registersº 
+het controì-registeò en het datá-register.
+Viá   heô  control-registeò  kaî  eeî  vaî  då  achttieî  program-registeró 
+geselecteerä  worden®   Dooò lezeî vaî oæ schrijveî naaò heô  data-registeò 
+wordô då inhouä vaî heô geselecteerdå registeò gelezeî daî weì beschreven.
+Onderstaande tabel geeft een overzicht van de functies van de registers.
+
+Reg.  Function               unit         R/W     7  6  5  4  3  2  1  0
+
+AR    Address register      [ -- ]         W      -  -  -  B4 B3 B2 B1 B0 
+R0    Horizontal total      [char]         W      B7 B6 B5 B4 B3 B2 B1 B0
+R1    Horizontal displayed  [char]         W      B7 B6 B5 B4 B3 B2 B1 B0 
+R2    Hor. sync. position   [char]         W      B7 B6 B5 B4 B3 B2 B1 B0 
+R3    Sync. width           [ -- ]         W      V1 V1 V1 V1 H  H  H  H  
+R4    Vertical total        [char row ]    W      -  B6 B5 B4 B3 B2 B1 B0 
+R5    Vert. total adjust    [scan line]    W      -  -  -  B4 B3 B2 B1 B0 
+R6    Vertical displayed    [char row ]    W      -  B6 B5 B4 B3 B2 B1 B0 
+R7    Vert. sync position   [char row ]    W      -  B6 B5 B4 B3 B2 B1 B0 
+R8    Interlace mode & skew [   --    ]    W      -  -  -  -  -  -  I  I  
+R9    Max scan line address [scan line]    W      -  -  -  B4 B3 B2 B1 B0 
+R10   Cursor start          [scan line]    W      -  B  P  B4 B3 B2 B1 B0 
+R11   Cursor end            [scan line]    W      -  -  -  B4 B3 B2 B1 B0 
+R12   Start address (H)     [ -- ]         W      -  -  B5 B4 B3 B2 B1 B0 
+R13   Start address (L)     [ -- ]         W      B7 B6 B5 B4 B3 B2 B1 B0 
+R14   Cursor (H)            [ -- ]        R/W     -  -  B5 B4 B3 B2 B1 B0 
+R15   Cursor (L)            [ -- ]        R/W     B7 B6 B5 B4 B3 B2 B1 B0 
+R16   Light pen (H)         [ -- ]         R      -  -  B5 B4 B3 B2 B1 B0 
+R17   Light pen (L)         [ -- ]         R      B7 B6 B5 B4 B3 B2 B1 B0 
+
+
+1.2.__Video-controller_software
+
+1.2.1.__Beeldherhalingsfrequentie
+
+Biê eeî 'colä boot§ vaî då Bondwelì 12/1´ wordô då video-controlleò zodaniç 
+gei"nitialiseerä  daô då beeldherhalingsfrequentiå 6° Hú bedraagt®   Diô  ió 
+dezelfdå frequentiå aló diå vaî heô lichtneô iî då Verenigdå  Staten®   Diô 
+ió  gedaaî  oí  heô 'golven§ vaî heô beelä teî  gevolgå  vaî  interferentiå 
+tusseî då beeldherhalingsfrequentiå eî då lichtnetfrequentiå tegeî tå gaan®  
+Daaò  iî Europá då lichtnetfrequentiå 5° Hú is¬  voldoeô dezå initialisatiå 
+hieò   nieô   aaî  diå  voorwaarde®    Heô  vervolç   beschrijfô   hoå   då 
+beeldherhalingsfrequentiå oğ 5° Hú gebrachô kaî worden.
+ŠHeô  video-beelä  ió opgebouwä uiô lijnenº  iî heô gevaì vaî eeî  7x¹  'doô 
+matrix§  vooò  elkå regeì ¹ lijneî (eventueeì vermeerderä meô  onbeschreveî 
+lijnen)®   Ná heô schrijveî vaî elkå lijî wordô då electronenstraaì diå heô 
+beelä  schrijfô  sneì teruggebrachô naaò heô begiî vaî då  volgendå  regel®  
+Evenzï  wordô  då  electronenstraaì ná heô schrijveî vaî heô  gehelå  beelä 
+teruggebrachô  naaò  heô begiî vaî heô beeldscherí  linksboven®   Zoweì  då 
+lijnterugslaç  aló då frameterugslaç neemô enigå tijä inbeslag¬  zodaô  daî 
+geeî zichtbarå informatiå weergegeveî kaî worden®  Grafiscè voorgesteld:
+
+          K0                             K79                    K112
+         +----------------------------------+-----------------------+   
+regel  0 |K0                             K79|                       |   
+         |                                  |      Horizontale      |
+         |        Zichtbaar deel            | <---  terugslag  ---> |
+         |                                  |        tijd           |
+regel 24 |K1920                        K1999|                       |
+         +----------------------------------+-----------------------+
+         |               /\                                         |
+         |               ||  Verticale terugslag tijd               |
+regel 27 |               \/                                         |
+         +----------------------------------------------------------+        
+
+Vooò  heô  programmereî vaî då video-controlleò moeô då tijä nodiç vooò  då 
+horizontalå  terugslaç uitgedrukô wordeî iî då tijä diå nodiç ió  vooò  heô 
+schrijveî vaî e'e'î karakteò (K)®   Då tijä nodiç vooò då verticalå terugslaç 
+moeô  wordeî uitgedrukô iî då tijä diå nodiç ió vooò heô schrijveî vaî  e'e'î 
+regeì  pluó diå vooò eeî fractiå vaî eeî regel®   Eeî fractiå vaî eeî regeì 
+ió e'e'î lijî vaî då 7x¹ 'doô matrix'®  Zï wordô då breedtå vaî heô zichtbarå 
+pluó heô niet-zichtbarå deeì vaî heô beelä uitgedrukô karakteró ¬ då lengtå 
+iî regels.
+
+De waarden die in de registers geprogrammeerd moeten worden zijn:
+Zichtbaar deel beeld + terugslagtijd
+Registeò ° - horizontaì total     : totaaì aantaì karakteró horizontaal -1
+Registeò ´ - verticaì total       : totaaì aantaì gehele regeló van beeld -±
+Registeò µ - verticaì totaì adjusôº aantaì lijneî iî overblijvendå fractie
+Zichtbaar deeì beelä
+Registeò 1 - horizontaì displayed : aantal karakters horizontaal
+Register ¶ - verticaì displayed   : aantal regels verticaal
+
+Dooò  då  waardå  vaî  heô  totaaì aantaì regeló  meô  eeî  factoò  6/µ  tå 
+vergroten¬  wordô då totalå tijä nodiç vooò heô schrijveî vaî e'e'î beelä meô 
+eeî  factoò  6/µ vergroot¬  terwijì heô aantaì  weergegeveî  regeló  gelijë 
+blijft®    Hierdooò   wordô   då  beeldherhalings-frequentiå  vaî   6°   Hú 
+teruggebrachô toô 5° Hz.
+
+Eeî  gebruikelijkå waardå  vooò  'verticaì total§  biê eeî  beeldopbou÷ vaî
+2´  regeló  ø 8° kolommeî biê 6° Hú ió 2· regels®   Omrekeneî  naaò  5°  Hú 
+geeftº  verticaì totaì [5° Hz]½ 6/5 ª (27+1© -± geefô 32.¶ regels®   Oí eeî 
+beeldherhalingsfrequentiå  vaî  5°  Hú tå krijgeî vooò heô  Bondwelì  12/1´ 
+scherí vaî 2µ regeló ø 8° kolommeî ió proefondervindelijë eeî waardå vaî 3´ 
+regeló  vooò  'verticaì  total§ eî ° lijneî vooò  'verticaì  totaì  adjust§ 
+gevonden.
+
+Dooò  heô verandereî vaî heô totaaì aantaì regeló verschuifô heô  verticalå 
+synchronisatiepunt®   Diô  kaî  wordeî gecorrigeerä dooò då waardå vaî  heô 
+'verticaì  synã position'-registeò (Registeò 7© uitgedrukô  iî  regelnummeò 
+aaî då nieuwå situatiå aaî tå passen®  Då nieuwå waardå hiervooò ió 28.
+.pa
+Š1.2.2.__Cursor_positie
+
+Registeò  1´ eî 1µ vaî då CRTÃ bevatteî heô adreó (nummer© vaî heô karakteò 
+waaroğ då cursoò staatº  linksboveî iî heô scherí ió nummeò 0¬  rechtsondeò 
+ió nummeò 199¹ (2µ regeló x 8° kolommen - 1)®  
+
+Oí  då cursoò oğ eeî bepaaldå positiå tå zetteî wordô registeò  R1´  gevulä 
+meô  heô  higè  ordeò bytå eî registeò R1µ meô heô lo÷ ordeò bytå  vaî  heô 
+karakternummeò vaî då gewenstå cursorpositie.
+Oí  då cursoò positiå oğ tå vrageî lezeî wå då registeró R1´ eî R1µ uiô  eî 
+vormeî vaî dezå tweå byteó heô karakternummeò vaî då huidigå cursorpositie.
+De schermpositie van de cursor kan dan als volgt bepaald worden: 
+regel= nummer : 80,  kolom= nummer - (regel x 80).
+
+Hierná  volgeî  enigå  programmavoorbeeldeî vooò  heô  manipulereî  vaî  då 
+cursorpositie®  Heô scherí ió hierbiê aló volgô gedefinieerdº 
+
++---------------------------------------------+ 
+| <- schermpositie y,x : 0,0                  | 
+|                                             |
+|                                             |
+|    y: 0..LPS-1  (Lines Per Screen -1)       |
+|    x: 0..CPL-1  (Characters Per Line -1)    | 
+|                                             |
+|                                             |
+|          schermpositie y,x : LPS-1,CPL-1 -> |
++---------------------------------------------+
+
+cursor(y,x)   : positioneer de cursor op regel y, kolom x.
+curpos(y,x)   : bepaal huidige cursorpositie
+
+const CPL= 80;                              { Characters per line }
+      LPS= 25;                              { Lines per screen    }
+
+{ Cursorpositionering gebruik makend van de }
+{ cursorbesturings escape sequence          }
+
+procedure cursor(y,x: integer);                     { Position cursor at: }
+   const ESC = 27;                                  {   line y, column x  }
+   begin                                            { position (y,x)      }
+     write(chr(ESC),'=',chr(y+32),chr(x+32));
+   end;
+
+{ Cursorpositionering direct gebruik makend van de }
+{ CRTC cursor control registers         (Noot 3,4) }
+
+procedure cursor1(y,x: integer);
+   const MC6845_AD = $10;                   { Video controller addr.reg.  }
+         MC6845_DA = $11;                   { Video controller data reg.  }
+         CURHI = 14;                        { Cursor address reg. HO-part }
+         CURLO = 15;                        { Cursor address reg. LO-part }
+   var   number : integer;
+   begin
+     number := y * CPL + x;                 { Calculate character number  }
+     port[MC6845_AD] := CURHI;              { Cursor High address reg.    }
+     port[MC6845_DA] := number div 256;     { MC6845 data register        }
+     port[MC6845_AD] := CURLO;              { Cursor Low address register }
+     port[MC6845_DA] := number mod 256;     { MC6845 data register        }
+   end;
+Š{ Cursor plaatsbepaling gebruik makend van de }
+{ CRTC cursor control registers      (Noot 4) }
+
+procedure curpos(var yp,xp: integer);       { Determine current cursor-   }
+                                            { position                    }
+   const MC6845_AD = $10;                   { Video controller addr.reg.  }
+         MC6845_DA = $11;                   { Video controller data reg.  }
+         CURHI = 14;                        { Cursor address reg. HO-part }
+         CURLO = 15;                        { Cursor address reg. LO-part }
+   var   number,hi,lo : integer;
+   begin
+     port[MC6845_AD] := CURHI;              { Cursor High address reg.    }
+     hi := port[MC6845_DA];                 { MC6845 data register        }
+
+     port[MC6845_AD] := CURLO;              { Cursor Low address register }
+     lo := port[MC6845_DA];                 { MC6845 data register        }
+
+     number := hi * 256 + lo;               { Calculate character number  }
+     yp := number div CPL;                  { Line                        }
+     xp := number mod CPL;                  { Column                      }
+   end;
+
+
+1.2.3.__Cursorgrootte_en_-blinking
+
+Registeò 1° eî 1± vaî då CRTÃ bevatteî då beschrijvinç vaî då cursorgroottå 
+eî -display-mode.
+
+Bit 5 en 6 van register 10 bepalen de display-mode:
+R10 : Bit 6,5  : 0 0 - Non-blink          1 0 - Blink, 1/16 Field rate
+                 0 1 - Non-display        1 1 - Blink, 1/32 Field rate
+
+Bit 0..4 van de registers 10 en 11 bepalen de grootte van de cursor:
+R10 : Bit 0..4 : Start line of cursor     waarde: 0..8
+R11 : Bit 0..4 : End line of cursor       waarde: 0..8
+
+'Starô  line§  eî 'Enä line§ zijî då nummeró vaî då rijen vaî då 7x¹  'doô 
+matrix§ (kolommeî ø rijen© waaruiô då karakteró oğ heô scherí zijî opgebouwd.
+
+Programmavoorbeelä oí då cursorgroottå eî -display-modå iî tå stellen.
+
+const  NON_BLINK   = 0;                     { Values for var. frequency   }
+       NON_DISPLAY = 1;                     { of procedure curshape       }
+       CUR_FAST    = 2;
+       CUR_SLOW    = 3;
+                                                      û Nooô 1,2,4        }
+procedure curshape(frequency,first,last : integer);   { Frequency  : 0..3 }
+                                                      { First, last: 0..8 }
+   const MC6845_AD = $10;                   { Video controller addr.reg.  }
+         MC6845_DA = $11;                   { Video controller data reg.  }
+         CURSTART  = 10;                    { Cursor address reg. HO-part }
+         CUREND    = 11;                    { Cursor address reg. LO-part }
+   begin                                    { Cursor blink and start line }
+     port[MC6845_AD] := CURSTART;           { register                    }
+     port[MC6845_DA] := frequency * 32 + first;  { Shift frq. 5 bit left, }
+                                                 { bitwise or with first  }
+     port[MC6845_AD] := CUREND;             { Cursor end line register    }
+     port[MC6845_DA] := last;               { Fill register               }
+   end;
+Š2.__Counter-timer
+
+2.1.__Hardware
+
+CTC data register counter/timer 0: $60
+CTC data register counter/timer 1: $61
+CTC data register counter/timer 2: $62
+CTC control register address     : $63
+
+Då  counter-timeò  i825³ bevaô driå identiekå 1¶ biô  down-counters®   Elkå 
+counteò heefô eeî clock- eî gate-inpuô eî eeî output®   Då klokingangeî vaî 
+då  driå  counteró  zijî  aangesloteî oğ  e'e'î  kristal-oscillatoò  meô  eeî 
+frequentiå  vaî  1,843²  MHz®   Då gate-inputó vaî då  driå  counteró  zijî 
+verbondeî meô då +5V®   Då uitgangeî vaî counteò ° eî ± zijî verbondeî  meô 
+då  klokingangeî  vaî då Z8° SIÏ kanaaì Á (RxCA,TxCA© eî  Â  (RxTxCB)®   Då 
+uitganç vaî counteò ² ió verbondeî meô PIÁ inganç PA4.
+
+Då  counter-timeò heefô vieò registersº  eeî dataregisteò (read/write© vooò 
+elkå counteò eî eeî control-registeò (writå-only).
+
+Beschrijving van het control-register van de CTC i8253.
+
+   Control-register
+
+   7 6 5 4 3 2 1 0
+   | | | | | | | |
+   | | | | | | | 0    0  BIN  16 bit binairy counter
+   | | | | | | | 1    1  BCD  4 decades BCD counter
+   | | | | | | |
+   | | | | 0 0 0 mode 0  interrupt on terminal count
+   | | | | 0 0 1      1  progr. one shot
+   | | | | x 1 0      2  rate generator
+   | | | | x 1 1      3  square wave rate generator
+   | | | | 1 0 0      4  software triggable strobe
+   | | | | 1 0 1      5  hardware triggable strobe   
+   | | | |
+   | | 0 0 read/load  0  counter latching
+   | | 0 1            1  msbyte only
+   | | 1 0            2  lsbyte only
+   | | 1 1            3  lsbyte,msbyte
+   | |
+   0 0 select counter 0  counter 0
+   0 1                1  counter 1
+   1 0                2  counter 2
+   1 1                3  illegal
+
+
+Då  counteró  kunneî aló Binairù Codeä Decimaì (BCD© eî aló  Binairù  (BIN© 
+counteò werken.  Verder zijn er 6 'operation modes':
+  mode 0: interrupt on terminal count,
+       1: programmable one-shot,
+       2: rate generator,
+       3: square wave rate generator,
+       4: software triggable strobe,
+       5: hardware triggable strobe.
+
+Iî  då Bondwelì 12/1´ wordeî då counteró ° eî ± gebruikô vooò heô generereî 
+vaî  då  baudratå vaî då seriaì interfaceó RS23² porô Á eî  RS23²  porô  B®  
+Daartoå  moeteî  då  counteró iî då ('Squarå Wave'© 'Ratå  Generatoò  Mode§ Šwerkeî (Modå ² oæ 3)®   Då counteò werkô daî aló 'devidå bù Î counter'º  då 
+waardå  vaî då uitgangsfrequentiå vaî då counteò ió  då  ingangsfrequentie¬ 
+gedeelä dooò då ingesteldå telwaarde.
+
+Heô  lezeî  vaî  eî  heô schrijveî naaò elkå counteò  kaî  oğ  då  volgendå 
+manieren gebeuren:
+  counter latching: de waarde vaî då counteò wordt 'oî thå fly§ (tijdenó heô 
+                    tellen© gecopie"erd naar eeî 'latch';
+                    lees de waarde vervolgens meô eeî vaî då leesopdrachten,
+  msbyte only     : alleeî heô meesô significantå bytå wordô 
+                    geschreven/gelezen,
+  lsbyte only     : alleeî heô minsô significantå bytå wordô 
+                    geschreven/gelezen,
+  lsbyte,msbyte   : eersô wordô heô minsô significantå bytå 
+                    geschreven/gelezen¬ daî heô meesô significantå byte.
+
+
+2.2.__Software
+
+Då onderstaandå procedurå laaô zieî hoå då i825³ geprogrammeerä kaî worden.
+
+procedure timer(number, mode, count, bcd : integer);  { Noot 1,2,3,4      }
+                                                      { Number: 0..2      }
+                                                      { Mode  : 0..5      }
+                                                      { Count : 0..$FFFF  }
+                                                      {   0 --> 2^16 cnts }
+                                                      { Bcd   : 0..1      }
+   const i8253_BA = 60;                          { Base address           }
+         i8253_CR = 63;                          { Control register       }
+   begin
+     port[i8253_CR] := number * 64 + 48 + mode * 2 + bcd;
+                                 { counter, load LSByte,MSByte, mode, bcd }
+
+     port[i8253_BÁ « numberİ :½ counô moä 256»   û Leasô Significanô Bytå }
+     port[i8253_BA + number] := count div 256;   û Most  Significanô Bytå }
+   end;
+
+
+3.__Serial_interface
+
+3.1.__Hardware
+
+SIO control register channel A address: $40
+SIO data register channel A address   : $41
+SIO control register channel B address: $42
+SIO data register channel B address   : $43
+
+Då Bondwelì 12/1´ heefô tweå RS23² serial-interfacesº  RS232-Á eî  RS232-B®  
+Då  definitiå vaî RS23² (V.24© beschrijfô då RS23² signaleî eî heô  gebruië 
+vaî  då  pinneî  vaî då 25-poligå D-connectoò (vooò zoveò dezå  pinneî  eeî 
+functiå toegewezeî gekregeî hebben).
+
+Då  RS23²  interfacå laaô zoweì synchronå aló asynchronå communicatiå  toe® 
+Biê  synchronå communicatiå bestureî controle-signaleî då  data-overdracht®  
+Biê asynchronå communicatiå kaî då ontvangeò aaî då datastrooí zieî waô heô 
+begiî  eî eindå vaî eeî verzondeî pakkeô is®   Iî e'e'î pakkeô wordô maximaaì 
+eeî bytå effectievå datá verzonden.
+
+Eeî  veeì  toegepastå opzeô vaî då RS232-interfacå oí tweå computeró  (Datá ŠCommunicatioî  Equipment¬  DCE©  meô elkaaò tå verbindeî ió  då  nul-modem®  
+Dezå  maakô alleeî gebruië vaî då transmit- receive- eî groundverbindingen¬ 
+zoaló hierondeò ió tå zien.
+
+One_side                                          Other_side
+
+transmit data         (pin 2) o___  ___o (pin 2)  transmit data       
+                                  \/
+received data         (pin 3) o___/\___o (pin 3)  received data       
+                                                               
+signal ground/return  (pin 7) o________o (pin 7)  signal ground/return
+
+Då  transmit-datá  signaalvorí zieô eò aló volgô uit®   
+
+- startbit : diô   dienô   oí   då  ontvangendå  zijdå  tå   kunneî   lateî 
+             synchronisereî meô då zendendå zijde,
+- databits : de eigenlijke data van het pakket (maximaal ¸ databitó),
+- paritybit: diô  biô  geefô då mogelijkheiä då databitó tå testeî  oğ  huî 
+             correctheid; het wordt als volgt berekend:
+             even parity: '1' als de som van de databits even is,
+             odd parity : '1' als de som van de databits oneven is,
+- stopbit  : dit geeft het einde aan van het pakket (1 of meer stopbits).
+
+Heô startbiô ió eeî logischå '0'¬ heô stopbiô eeî logischå '1'®  Wanneeò eò 
+geeî datá verzondeî wordt¬ is het transmit-datá signaaì '1'.
+
+Onderstaand figuur geeft de transmit-data signaalvorm weer.
+
+__  __        __  __  __  __  __  __  __  __  __  ____  ___        __  __
+  ||  \      /  \/  \/  \/  \/  \/  \/  \/  \/  \/    ||   \      /  \/
+  ||   \____/\__/\__/\__/\__/\__/\__/\__/\__/\__/     ||    \____/\__/\__
+       start  0   1   2   3   4   5   6   7   P  stop               
+       |      |                           |   |    |  
+       |      |                           |   |    |__ stop-bit(s)
+       |      |                           |   |_______ parity-bit
+       |      |                           |___________ data-bit 7
+       |      |_______________________________________ data-bit 0
+       |______________________________________________ start-bit
+
+
+Då  snelheiä  waarmeå  heô  transmit-datá  signaaì  då  afzonderlijkå  bitó 
+(startbit,databits¬  etc.© verzendt¬  wordô uitgedrukô iî då baudrate®   Då 
+baudratå  geefô  heô aantaì verzondeî bitó peò secondeº  ± Baud½  ±  bit/s®  
+Hieriî zijî ooë då start-¬ parity- eî stopbitó meegerekend.
+
+
+Iî då Bondwelì 12/1´ wordô då RS23² interfacå verzorgä dooò då SIO.
+
+Då  zend- eî ontvang-klokingangeî vaî kanaaì Á eî Â (TxCA,RxCÁ  eî  RxTxCB© 
+vaî  då SIÏ zijî verbondeî meô respectievelijë då timer/counteò uitgangeî ° 
+eî  ±  vaî  då CTC.
+
+Vooò  elë  serie"eì  kanaaì (RS232-Á eî RS232-B© heefô då  SIÏ  tweå  direcô 
+toegankelijkå registersº  heô control-registeò eî heô  data-register®   Viá 
+heô  control-registeò  (Registeò  0©  kunneî  noç  zeveî  anderå  registeró 
+(Registeò  1..7©  geprogrammeerä  wordeî  oí  då  werkinç  vaî  då  SIÏ  tå 
+definie"ren®   Heô  data-registeò  wordô alleeî gebruikô vooò heô lezeî  vaî 
+datá  diå  serie"eì ontvangeî wordeî eî heô schrijveî vaî datá  diå  serie"eì 
+verzondeî moeteî worden»  heô wordô duó nieô gebruikô vooò heô programmereî Švaî då SIO.
+
+Onderstaande figuren beschrijven een deel van de registers van de Z80-SIO/0.
+
+Z80 SIO/0  Control registers
+
+   Read register 0                        Write register 0
+
+   7 6 5 4 3 2 1 0                        7 6 5 4 3 2 1 0
+   | | | | | | | |_ Rx buffer full        | | | | | | | |
+   | | | | | | |___ int. pending (Ch A)   | | | | | x x x register 0..7
+   | | | | | |_____ Tx buffer empty       | | | | |                           
+   | | | | |_______ DCD                   | | 0 0 0 null code                 
+   | | | |_________ sync/hunt             | | 0 0 1 send abort(SDLC)          
+   | | |___________ CTS                   | | 0 1 0 res.ext/status interr.    
+   | |_____________ Tx underrun/EOM       | | 0 1 1 channel reset             
+   |_______________ break/abort           | | 1 0 0 enable Int.on nxt Rx char 
+                                          | | 1 0 1 reset Tx int.pending      
+                                          | | 1 1 0 error reset               
+                                          | | 1 1 1 return from int.(Ch.A)    
+                                          | |                                 
+                                          0 0 null code                       
+                                          0 1 reset Rx CRC checker            
+                                          1 0       Tx CRC checker                       
+                                          1 1       Tx underrun/EOM latch     
+                                          
+
+   Write register 3                       Write register 5
+
+   7 6 5 4 3 2 1 0                        7 6 5 4 3 2 1 0
+   | |           |_ Rx enable               | |   |_______ Tx enable
+   | |                                      | |
+   0 0 Rx 5 bit/char                        0 0 Tx 5 bit/char
+   0 1    7                                 0 1    7
+   1 0    6                                 1 0    6
+   1 1    8                                 1 1    8
+
+
+   Write register 4
+
+   7 6 5 4 3 2 1 0
+   | |     | | | |_ parity enable
+   | |     | | |___ parity even/oddn
+   | |     | |
+   | |     0 0 enable sync modes
+   | |     0 1   1 stopbit/char
+   | |     1 0   1.5
+   | |     1 1   2
+   | |
+   0 0 x1  clock mode
+   0 1 x16
+   1 0 x32
+   1 1 x64
+.pa
+Š3.2.__Software
+
+Då  SIÏ  kaî  zoweì  vooò  synchronå  aló  vooò  asynchronå   communicatie-
+protocolleî  gebruikô worden»  hieò zaì alleeî beschreveî wordeî hoå då SIÏ 
+geprogrammeerä kaî wordeî vooò heô RS23² asynchronå protocol.
+
+De te programmeren grootheden zijn:
+- het aantal databits: 5..8,
+- de parity          : no,odd,even,
+- het aantal stopbits: 1..2,
+- de clock-mode      : het aantal clock-pulsen per verzonden/ontvangen bit,
+                       x1,x16,x32,x64.
+
+Då baudratå wordô bepaalä dooò då gekozeî clock-modå eî dooò då  instellinç 
+vaî  counter/timeò  °  vooò serie"eì kanaaì Á eî vaî  counter/timeò  ±  vooò 
+serie"eì kanaaì B.
+
+Heô getal (N) daô geprogrammeerä moeô wordeî iî då counteò wordô aló  volgô 
+berekend (zie H2.2.):
+
+                Fin(CTC)           1          |   [1/s]      []         |
+         N = ---------------- * --------      |  ------- * ------- = [] |
+             clock-pulses/bit   baudrate      |  [1/bit]   [bit/s]      |
+
+
+         N = 1.8432 * 10^6 / ((clock-pulses/bit) * baudrate)
+
+
+Bijvoorbeeld: baudrate is 50 Baud, clock-mode is x16,
+dit geeft: N = 1.8432 * 10^6 / (16 * 50) = 2304  (= $900).
+
+Onderstaande procedure laat zien hoe de SIO geprogrammeerd kan worden.
+
+                                                             { Noot 1,2,4 }
+
+procedure set_sio(channel,clkmode,databits,stopbits,parity : integer);
+                                 { Channel : 0..1  (channel A, channel B) }
+                                 { Clkmode : 0..3  (x1,x16,x32,64)        }
+                                 { Databits: 0..3  (5..7 databits)        }
+                                 { Stopbits: 1..3  (1,1.5,2 stopbits)     }
+                                 { Parity  : 0,1,3 (no,odd,even parity)   }
+
+   const SIO_BA = 40;                  { SIO Base Address                 }
+   var   sio_cr : integer;             { SIO Control Register             }
+   begin
+     sio_cr := SIO_BA + channel * 2;   { This channel's control register  }
+
+     port[sio_cr] := 4;                { Select register 4:               }
+     port[sio_cr] := clkmode * 64 + stopbits * 4 + parity;
+
+     port[sio_cr] := 3;                { Select register 3: Receive mode  }
+     port[sio_crİ :½ databitó ª 6´ « 1;û Databitsºbiô 6,7» Rø enableºbiô 0}
+
+     port[sio_cr] := 5;                { Select register 5: Transmit mode }
+     port[sio_cr] := databits * 32 + 8;{ Databits:bit 5,6; Tx enable:bit 3}
+   end;
+.pa
+ŠTot_slot
+
+Diô  artikeì  geefô  nieô heô gehelå scalá weeò aaî  mogelijkhedeî  vaî  då 
+besprokeî  programmablå  peripheraì I.C.'s®   Completå informatiå  oveò  då 
+besprokeî I.C.'ó ió uiteraarä tå vindeî iî då originelå data-sheets® 
+
+
+M.J. Moene
+Linnaeusparkweg 46-3
+1098 EC  Amsterdam
+Tel.:020-936378      (bij voorkeur tussen 19:00 en 20:00 uur)
+
+                     
+
+
+Noot 1: 
+  Oí  eeî 'bitwiså OR§ vaî tweå getalleî tå bepalen¬  wordô  då  +-operatoò 
+  gebruikt»  diô  kaî  alleeî wanneeò då getalleî geeî '1'-eî  oğ  dezelfdå 
+  bitpositiå hebbenº 1+3=´  <¾  ± 'bitwiså OR§ 3=3.
+
+
+Noot 2:
+  Vooò heô verschuiveî vaî eeî aantaì bitó iî eeî getaì wordô då *-operatoò 
+  gebruikt: 2*1=2  =  1 "schuif-links" 1 bitpositie.
+
+
+Noot 3:
+  Vooò heô scheideî vaî eeî integergetaì iî heô 'mosô significanô byte§  eî 
+  heô  'leasô  significanô  byte§ wordô iî då programmavoorbeeldeî  vaî  då 
+  volgendå methodå gebruië gemaaktº 
+
+  most_significant_byte  = getal / 256,
+  least_significant_byte = getal modula 256     (=getal - (getal/256)*256).
+  
+
+Noot 4:
+  Då  programmavoorbeeldeî zijî geschreveî iî då Turbo-Pascaì implementatiå  
+  vaî Pascal®   Dooò heô gebruië vaî heô port-arraù (port[n]© vooò port-I/Ï  
+  voldoeî bovenstaandå voorbeeldeî nieô aaî då definitiå vaî Pascalº oğ diô 
+  punô kunneî eò duó verschilleî bestaaî meô anderå Pascal-compilers.
+
+
+                           o-o-o-o-o-o-o-o-o-o-o
+
+

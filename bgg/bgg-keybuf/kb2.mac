@@ -1,0 +1,1633 @@
+	title	Bondwell 12 keyboard buffering: 
+
+;******************************************************************************
+;*
+;*   Keybuf.mac
+;*
+;*   Bondwell 12 keyboard buffer.
+;*
+;*
+;*   Copyright (C) 1988 by M.J. Moene.
+;*
+;*   May be copied with mentioning of reference.
+;*
+;*
+;*   Version: 2.00
+;*   Date   : 12 Feb 1989
+;*   Disk   : Keyboard Buffer
+;*
+;*   Assembler	     : M80
+;*   Operating system: CP/M 2.2
+;*   Hardware system : BW12
+;*
+;******************************************************************************
+
+	subttl	[ keybuf.description ]
+	page	88			; Set pagelength to 88 lines
+;******************************************************************************
+;*
+;*
+;*   Description
+;*   -----------
+;*
+;*   This  program supplies the Bondwell 12 CP/M 2.2 operating	system
+;*   with a type-ahead-buffer.
+;*
+;*
+;*   Make
+;*   ----
+;*
+;*   M80 =keybuf
+;*   L80 keybuf,keybuf /n/e
+;*
+;*
+;*
+;*   Usage
+;*   -----
+;*
+;*   A>keybuf <RETURN>
+;*
+;*
+;*
+;*   Notes
+;*   -----
+;*
+;*   The  check  for  a valid disk-drive in  the  warmboot-routine  is
+;*   removed.	If  an invalid disk has been selected and the  message
+;*   "Bdos  Err On d:  Select" appears,  ^C no longer will reboot  the 
+;*   system.   Rebooting  of  the system can now be done by using  the
+;*   CTRLBRK  key (^@).   Ctrlbrk can also be used for breaking out  a
+;*   'hanging' program.
+;*
+;*
+;*
+;*   Warning
+;*   -------
+;*
+;*   This  driver  uses  the  Z80 interrupt-mode 1  and   consequently
+;*   addresses $38..$40 for the interrupt-vector. So programs that use
+;*   these  addresses and/or interrupts (IRQ / RST 38) too, should  be
+;*   used with care (or not at all),  when this driver is active (e.g.
+;*   DDT).
+;*
+;*   Keybuf works well with other resident drivers like QwikKey.  When
+;*   used with Uniform, Uniform should be loaded before Keybuf.
+;*
+;*   Keybuf cannot be used with DDT.
+;*
+;*
+;*
+;*   Bugs
+;*   ----
+;*
+;*   - Sometimes  the message "Bdos Err On A:  Bad Sector" appears and 
+;*     the   system is left hanging (e.g.  when using NSWEEP).
+;*     Cause unknown.
+;*   - Sometimes a short click is produced by the speaker.   No  other	
+;*     effects are observed. (Some unexpected OUT instruction).
+;*
+;*
+;*
+;*   Future improvements
+;*   -------------------
+;*
+;*   When  the	BIOS disk read- and  write-routines  are  called,  the
+;*   keyboard-driver  disables the interrupt.	Due to the  relatively
+;*   slow disk-access, keystrokes made during disk-access may be lost.
+;*   By  disabling/enabling the interrupt at a more convenient	place,
+;*   this problem probably can be solved.
+;*   Further various options can be added to the program like:
+;*   -h or none : give explanation of usage,
+;*   -i 	: install the resident driver,
+;*   -r 	: remove the resident driver.
+;*
+;*
+;*
+;*   References
+;*   ----------
+;*
+;*   Resource by Ward Christensen.
+;*   QwikKey by Adam Fritz and Tony Fleig.
+;*   CP/M operating system manual, Digital Research, California, 1982.
+;*
+;******************************************************************************
+     page
+;******************************************************************************
+;*
+;*
+;*   General description
+;*   -------------------
+;*
+;*   For the more or less experienced computer-user sooner or later it
+;*   will become tiresome that he has to wait for the computer to  get
+;*   it's  job done and enter a new command.   Nowadays many  machines
+;*   are provided with a type-ahead-buffer to cope with this  problem.	
+;*   The  KEYBUF program is meant to supply the Bondwell 12  operating
+;*   CP/M 2.2  with such a type-ahead-buffer.	The operation of  this
+;*   buffer-mechanism  is completely transparent to the user:  it is a
+;*   part of the operating system.
+;*	The   technique   used	 for  the   implementation   of   this
+;*   keyboardbuffer is known as 'resident driver' technique.  Resident
+;*   means:  the  driver-routines  and -data reside ('sit') in	memory
+;*   continuously,  not being damaged by the execution of any program.	
+;*   This  is very much like the operating system parts BDOS and  BIOS
+;*   that  are	situated  somewhere in memory where they will  not  be
+;*   disturbed by the execution of a program.
+;*	The  remainder	describes  the	implementation	details  of  a
+;*   resident  driver under CP/M 2.2 and the detailed operation of the
+;*   KEYBUF program.
+;*
+;******************************************************************************
+     page
+;******************************************************************************
+;*
+;*
+;*   Resident driver under CP/M 2.2
+;*   ------------------------------
+;*
+;*   If  some  part  of software has to stay resident in  a  CP/M  2.2
+;*   operating system environment it has to meet certain requirements.
+;*   This  is  because the area in memory where the  software  resides
+;*   must  be  protected from being damaged by	a  transient  program.
+;*	The  protected memory is obtained from the TPA by   simulating	
+;*   that  the BDOS module  of the operating system (which never  will	
+;*   be overwritten) is situated at a lower address in memory than  it	
+;*   actually  is.   This  is achieved by adapting the address of  the	
+;*   BDOS-entry at address $5 in the MWA to the lowest address used by	
+;*   the   resident   software.  The resident module therefore has  to
+;*   begin with a link to the real BDOS module.
+;*	A  consequence of this  adaption  is that the  CCP/BDOS serial
+;*   number (six bytes) must be copied to the six addresses before the
+;*   start of the resident module each time a warmboot is made or when
+;*   a program RETurns to the CCP.   If this is not done the CCP  will
+;*   assume  that  the BDOS  module is an illegal copy	and  it   will
+;*   disable interrupts and halt the system.
+;*
+;*   The  setup  of a resident driver is as shown in  the  memory  map
+;*   below.   The addresses given are as for the Intel MDS-800 system.
+;*
+;*
+;*	      CP/M
+;*
+;*   +-------------------+
+;*   |			 |
+;*   |	      BIOS	 |
+;*   |			 |
+;*   |-------------------| $4A00   Basic Input Output System
+;*   |			 |
+;*   |	      BDOS	 |
+;*   |			 | $3C06   Basic Disk Operating System
+;*   |	   CCP / BDOS	 |
+;*   |	 serial number	 |
+;*   |-------------------| $3C00   6 byte CCP/BDOS serial number
+;*   |			 |
+;*   |	      CCP	 |	   call $100 --> call ccpret
+;*   |			 |
+;*   |-------------------| $3400   Console Command Processor
+;*   |	resident driver  |	   resident keyboard driver-routines and data
+;*   |			 |
+;*   | bdoslink: jp BDOS | $...6   link to BDOS (simulates limited memory size)
+;*   |			 |
+;*   |	   CCP / BDOS	 |
+;*   |	 serial number	 |
+;*   |-------------------| $...0   6 byte CCP/BDOS serial number (copied from BDOS)
+;*   |			 |
+;*   |	      TPA	 |
+;*   |	   (reduced)	 |
+;*   |			 |
+;*   |-------------------| $ 100   Transient Program Area
+;*   |			 |
+;*   |	      MWA	 |
+;*   |			 |
+;*   | $38  jp isr	 | $  38   Interrupt Service Routine entry
+;*   |			 |
+;*   | $5   jp bdoslink  | $   5   BDOS entry
+;*   | $4   curdisk	 | $   4   current disk
+;*   | $0   jp WMBT	 | $   0   BIOS Warmboot entry
+;*   +-------------------+
+;*
+;******************************************************************************
+     page
+;******************************************************************************
+;*
+;*
+;*   Operation of keybuf
+;*   -------------------
+;*
+;*   The  operation of the keyboardbuffer is based on the  possibility
+;*   of the Bondwell 12 hardware to generate a signal to interrupt the
+;*   normal processing of the Z80 microprocessor (/IRQ signal).   If a
+;*   key is pressed the normal processing is interrupted and a special
+;*   Interrupt	Service  Routine  (ISR)  is  executed.	 This  routine
+;*   fetches  the ASCII-code of the pressed key and appends it to  the
+;*   keyboardbuffer.   Then the normal operation is resumed.  The BIOS
+;*   console  status  and  console  input  routines  are  replaced  by
+;*   customized  routines that work on the keyboardbuffer.   So when a
+;*   character	is read from the keyboard it's actually obtained  from
+;*   the keyboardbuffer.
+;*
+;*
+;*   The Keybuf program consists of the following parts:
+;*
+;*   1. installation
+;*	1.1. installation-routine
+;*	1.2. data area
+;*
+;*   2. keyboard driver
+;*	2.1. bios-routines
+;*	2.2. interrupt service routine
+;*	2.3. buffer-routines
+;*	2.4. data area
+;*
+;*   The installation-routine (part 1.) prepares the keyboard  driver-
+;*   routine (part 2.) and makes it resident at an appropriate address
+;*   in memory.
+;*
+;*   A description of these parts follows.
+;*
+;*
+;*   1. Installation
+;*   ---------------
+;*
+;*   1.1. Installation-routine
+;*
+;*   First keybuf defines it's own stack and displays it's logo.
+;*   Then  keybuf  checks  if it is in a valid	operation  environment
+;*   (CP/M  2.2,  Z80  interrupt mode 1 not in use).
+;*	After that it calculates the memory-address where the resident
+;*   driver-routine is to be loaded.
+;*	A new bdos link is set up to reserve some protected memory for
+;*   the  driver-routine below the CCP.  If there are already resident
+;*   driver-routines  present  below the CCP it reserves memory  below
+;*   the driver-routine that starts at the lowest memory-address.
+;*	The  driver-routine  is  relocated to run  at  the  calculated
+;*   memory-address.	Some CP/M related variables are filled in into
+;*   the keybuf driver-routine.    Now the resident driver-routine  is
+;*   moved to the calulated memory-address.
+;*	Keybuf initializes the keyboardinterface to generate an inter-
+;*   rupt  each time a keystroke is made.    At last the Z80 interrupt
+;*   mode is set to mode 1 and interrupts are enabled.
+;*
+;*
+;*   1.2. Data area
+;*
+;*   The installation part data area contains the strings used in  the
+;*   installation-routine,  variables  to hold the CCP	return-address
+;*   and  the  relocation-information  and  a  stack  for  the	keybuf
+;*   program.
+;*
+;******************************************************************************
+     page
+;******************************************************************************
+;*
+;*
+;*   2. Keyboard driver
+;*   ------------------
+;*
+;*   2.1. Bios-routines 	
+;*
+;*   The  keyboard  driver  contains the  following  customized  BIOS-
+;*   routines:
+;*
+;*   - wboot: the  warmboot-routine  sets the stackpointer to  address
+;*	      $80.   The  BDOS	linkage is established again  and  the
+;*	      CCP/BDOS serialnumber is copied to the lowest address of
+;*	      the  resident  driver minus 6 to	simulate  the  reduced
+;*	      memorysize  and  thereby	protect the memory  where  the
+;*	      driver resides.	The warmboot-routine ends with a  jump
+;*	      to the CCP with the current-disk code in register c.
+;*	      The  CCP	has  not to be loaded again  because  it  also
+;*	      resides  in  the	protected memory  area.   Besides  the
+;*	      installation-routine  changed the CALL 100H for  exectu-
+;*	      tion  of a transient program into CALL CCPRET wich is  a
+;*	      part  of the resident driver.   Thus this adjustment  is
+;*	      left intact when a warmboot is executed.
+;*
+;*   - const: the   console  status-routine  checks  the  buffer-empty
+;*	      (que_emp) flag to see if there are any characters in the
+;*	      keyboardbuffer  and  it  returns the  proper  status  in
+;*	      register a.
+;*
+;*   - conin: the  console  input-routine  waits for  a  character  to
+;*	      become available in the keyboardbuffer and then  removes
+;*	      it from the buffer and returns it in register a.
+;*
+;*   - read/write:  the  read- and write-routines are included here to
+;*	      disable the possibility that a keystroke will  interrupt
+;*	      a  sector  read- or write-operation and thereby  disturb
+;*	      their correct operation.
+;*
+;*
+;*
+;*   2.2. Interrupt Service Routine
+;*
+;*   The Interrupt Service Routine (ISR) executes as follows.
+;*
+;*   First  it is determined  if the  keyboard is  the  source of  the
+;*   interrupt.   If it is, our Interrupt Service Routine is executed,
+;*   if not, the programflow continues at the original INT $38 routine.
+;*      Registerpair  hl is saved and  then used to  save the original
+;*   stackpointer  and	to  define a local stack.   Then  the  current
+;*   register environment is saved.
+;*	The  character is fetched by the original conin-routine and it
+;*   is compared to the Ctrl-Break character.	If it's not the  Ctrl-
+;*   Break character then it is checked if the queue is full.	If the
+;*   queue  isn't full,  the character is appended to the keyboardbuf-
+;*   fer; if the queue is full the keystroke is merely ignored.
+;*	Then  the console status is checked for any  more  characters.	
+;*   This  is  probably the case if a function key  was  pressed.   If
+;*   there  are any more characters they will be fetched and processed
+;*   as described above.
+;*	The  keyboard  hardware  is  prepared  again  to  generate  an
+;*   interrupt at a keystroke.	This must be done because the original
+;*   BIOS-routines  const  and	conin disable  the  generation	of  an
+;*   interrupt.
+;*	The  register environment is restored as well as the  original
+;*   stackpointervalue and Z80 interrupts are enabled again.
+;*
+;*   If  the  key pressed happens to be the Ctrl-Break key,  then  the
+;*   following actions result.	The keyboard buffer is cleared.  Drive
+;*   A:  is made the current disk.   The keyboard hardware is prepared
+;*   again  to generate an interrupt at a keystroke.   Z80  interrupts
+;*   are enabled and a warmboot is performed.
+;*
+;******************************************************************************
+     page
+;******************************************************************************
+;*
+;*
+;*   2.3. Buffer-routines
+;*
+;*   The keyboard buffer is implemented as a queue structure:  charac-
+;*   ters  are	appended at the end of the queue and removed from  the
+;*   front  of it.   Appending of characters is done by the  Interrupt
+;*   Service Routine, removing of characters from the queue is done by
+;*   the resident driver conin-routine.   The queue itself is a circu-
+;*   lar buffer. (See figure below)
+;*
+;*
+;*
+;*			 +--------------+
+;*			 |     queue	|
+;*			 +--------------+
+;*			 | front | rear |
+;*			 +--------------+
+;*	      output pointer |	    | input pointer
+;*	      +--------------+	    +--------------+
+;*	      | 				   |
+;*	      V 				   V
+;*	   +-----+				+-----+
+;*   +-----| chr |------>-------//------->------| chr |------//------+
+;*   |	   +-----+				+-----+ 	     |
+;*   |								     |
+;*   +--------------------------<------------------------------------+
+;*
+;*
+;*   The  keyboardbuffer queue-structure is managed by three  routines
+;*   and two global variables.
+;*
+;*   The routines are:
+;*   - q_init  : initialize the queue structure
+;*		 (clear the keyboardbuffer).
+;*   - q_append: add  the  character in register a to the end  of  the
+;*		 queue.
+;*   - q_remove: remove the character from the beginning of the  queue
+;*		 and return it in register a.
+;*
+;*   The variables are:
+;*   - q_emp: if  q_emp is true (1) then there are no more  characters
+;*	      left in the queue.
+;*   - q_ful: if  q_ful  is  true (1) then no more characters  can  be
+;*	      appended to the queue.
+;*
+;*
+;*
+;*   2.4. Data area
+;*
+;*   The  resident driver data area contains space for	the  following
+;*   items:
+;*   - flags, pointers and a buffer for the keyboardbuffer,
+;*   - a  local  stack for the interrupt service routine and  room  to
+;*     save the external stackpointervalue.
+;*
+;******************************************************************************
+
+	subttl	[ keybuf.hardware ]
+	page
+;******************************************************************************
+;*
+;*   Keyboard configuration
+;*
+;*   The Bondwell 12 keyboard is connected to the computer via a serial
+;*   interface.   At the computer-side this interface consists of a PIA
+;*   (Peripheral Interface Adapter).  Connections are as shown below.
+;*
+;*
+;*	   PIA
+;*   ;--------------+
+;*   |		Ca1 |-
+;*   |		Ca2 |-
+;*   |		    |
+;*   |		Pb0 |-
+;*   |		 .. |
+;*   |		Pb0 |-
+;*   |		    |
+;*   |		Pa0 |-
+;*   |		Pa1 |-
+;*   |		Pa2 |-
+;*   |		Pa3 |-
+;*   |		Pa4 |-
+;*   |		Pa5 |-----+--------------<--O keyboard strobe
+;*   |		Pa6 |---- | -------------<--O keyboard serial output
+;*   |		Pa7 |-	  |
+;*   |		    |	  | 4700 pF
+;*   |		Cb1 |-----+--||---+
+;*   |	 /IRQb	Cb2 |------------ | ----->--O keyboard shift clock
+;*   +--------------+		 ---
+;*	    |
+;*	    +---------------------------->--O Z80 /IRQ
+;*
+;******************************************************************************
+
+;******************************************************************************
+;*
+;*   PIA control register A (B)
+;*
+;*   +---------------------+--------------------------------------------+
+;*   |	      read	   |		     read/write 		|
+;*   +---------------------+--------------------------------------------+
+;*   |	  b7	|    b6    |  b5  |  b4  |  b3	 |   b2   |  b1  |  b0	|
+;*   +----------+----------+---------------------+--------+-------------+
+;*   | IRQA(B)1 | IRQA(B)2 |	     CA2	 |   DDR  |  CA1 (CB1)	|
+;*   |	 flag	|   flag   |	   control	 | access |   control	|
+;*   +----------+----------+---------------------+--------+-------------+
+;*
+;*
+;*   b0 = 0: Disable IRQA(B) MPU interrupt by CA1 (CB1) active transition.
+;*   b0 = 1: Enable IRQA(B) MPU interrupt by CA1 (CB1) active transition.
+;*
+;*   b1 = 0: IRQA(B)1 set by high-to-low transition on CA1 (CB1).
+;*   b1 = 1: IRQA(B)1 set by low-to-high transition on CA1 (CB1).
+;*
+;******************************************************************************
+
+	subttl	[ keybuf.assycontrol ]
+	page
+
+	.Z80			; Generate Z80 code
+	aseg			; Absolute address code
+
+	org	100H		; Start of all CP/M programs
+	jp	main		; Pass copyright notice
+
+
+cpyrght:db	'<(C) Copyright 1988, by M.J. Moene>'
+
+	subttl	[ keybuf.main.constants ]
+	page
+;******************************************************************************
+;*
+;*	Global constants
+;*	
+;******************************************************************************
+
+; Control Break key
+
+CTRLBRK	equ	0			; ^@
+
+
+; ASCII constants
+
+CR	equ	0dH			; Carriage return
+LF	equ	0aH			; Linefeed
+BELL	equ	7			; Bell-code
+
+
+; Bdos routine numbers
+
+WMBT	equ	0			; Jump to warmboot entry bios jumptable
+BDOS	equ	5			; Jump to bdos
+GCHR	equ	1			; Bdos console input function
+PCHR	equ	2			; Bdos console output function
+PSTRING	equ	9			; Bdos print string function
+VERSION	equ	12			; CP/M versionnumber
+
+
+; Keyboard hardware
+
+PIA	equ	03cH			; PIA for keyboard
+PIAORB	equ	PIA+2			;   output register B
+PIACRB	equ	PIA+3			;   control register B
+
+CRBINTM	equ	3			; CRB interrupt mask
+					;   b0 = 1: interrupt enabled
+					;   b1 = 1: act.transition: low to high
+CRBINTF	equ	80H			; CRB interrupt flag
+					;   b7 = 1: interrupt occurred
+
+
+; 'Addresses' of CP/M modules/routines (partly filled in later)
+
+CURDISK	equ	0004H			; Current disk
+
+CCP	  equ	0000H			; Address of CCP
+BDOSADD   equ	0000H			; Address of BDOS
+
+BIOSWBOOT equ	0000H			; warmboot
+BIOSCONST equ	0000H			; const
+BIOSCONIN equ	0000H			; conin
+BIOSREAD  equ	0000H			; read
+BIOSWRITE equ	0000H			; write
+
+
+; Other
+
+JP	equ	0c3H			; Code for JP instruction
+INT38	equ	0000H			; Contents of interrupt vector
+ISRVEC	equ	0038H			; Address of jump to interrupt-routine
+CMDLIN	equ	0080H			; Commandline tail
+
+STACKSIZ  equ	20			; 10 level stack
+
+
+	subttl	[ keybuf.main ]
+	page
+;******************************************************************************
+;*
+;*	Main line
+;*
+;*	Installation of keyboard interrupt driver-routine
+;*	
+;******************************************************************************
+
+;
+; Get CCP return address
+;
+
+main:	pop	hl			; Get CCP return address
+	push	hl
+	ld	(retadd),hl		; Save CCP return address
+
+
+;
+; Save stackpointer, define own stack
+;
+
+	ld	hl,0
+	add	hl,sp
+	ld	(oldsp),hl		; Save external stackpointer
+	ld	sp,stack		; Define own stack
+	
+
+;
+; Print logo
+;
+
+	ld	de,logo			; Print logo
+	ld	c,PSTRING
+	call	BDOS
+
+
+;
+; Determine command option ( -a, -d, -h, none )
+;
+
+	ld	hl,CMDLIN		; hl points to commandline
+	ld	a,(hl)			; a = charactercount
+	or	a			; any more characters?
+	jr	z,maino5		;   no : show usage
+	ld	c,a			;   yes: bc = charactercount
+	ld	b,0
+	ld	a,'-'
+	cpir				; search for '-'
+	ld	a,c
+	or	b			; any char's left?
+	jr	z,maino5		;   no : show usage
+	inc	(hl)			;   yes: get option
+	ld	a,(hl)
+
+maino1:	cp	'a'			; -a  ( activate )
+	jr	z,maino2
+	cp	'A'
+	jr	nz,main3
+maino2:	ld	a,1
+	ld	(actflg),a
+	jr	maino6
+
+maino3:	cp	'd'			; -d  ( deactivate )
+	jr	z,maino4
+	cp	'D'
+	jr	nz,main5
+maino4:	ld	a,0
+	ld	(actflg),a
+	jr	maino6
+
+maino5:	ld	c,PSTR			; -h, no option or invalid option
+	ld	de,usage
+	call	BDOS
+	jp	mainx			; Leave program
+
+maino6:
+
+
+;
+; Check for valid operation environment
+;
+
+	ld	c,VERSION		; Get versionnumber
+	call	BDOS
+	ld	a,l			; Is it 2.2 ?
+	cp	22H
+	jr	z,main1			;   Yes: continue
+	
+main0:	ld	c,PCHR			;   No: signal error
+	ld	e,BELL
+	call	BDOS
+
+	ld	c,PSTRING
+	ld	de,cpm22		; CP/M 2.2 only
+	call	BDOS
+	jp	mainx			; Return to CCP
+
+main1:
+	ld	a,(ISRVEC)		; Interrupt 1 or RST 38 in use?
+	or	a			
+	jr	z,main11		;   No: continue
+
+	ld	c,PCHR			;   Yes: draw attention
+	ld	e,BELL
+	call	BDOS
+
+	ld	c,PSTRING		; inform user
+	ld	de,warng
+	call	BDOS			; print warning/question
+
+	ld	c,GCHR
+	call	BDOS			; Get answer in reg. a
+	cp	'y'			; Answer is 'y'?
+	jr	z,main11		;   Yes: continue
+	cp	'Y'			; Answer is 'Y'
+	jp	nz,mainx		;   No : return to CCP
+
+main11:					;   Yes: continue
+
+	page
+;
+; Check if driver is already resident
+;
+
+	call	isres			; resident?
+	jr	nz,main12		;   yes: print kebuf already resident
+	ld	c,PSTR			;   no : print keybuf installed
+	ld	de,resnow
+	call	BDOS
+	jr	main13			; skip
+
+main12:	ld	c,PSTR
+	ld	de,resalr
+	call	BDOS
+main13:
+
+
+;
+; print driver status
+;
+
+	ld	a,(actflg)		; Check active-flag
+	ld	c,PSTR			; Preset prompt to active
+	ld	de,stsact
+	or	a			; Active?
+	jr	nz,main14		;   Yes: skip
+	ld	de,stsina		;   No : inactive
+main14:	call	BDOS
+
+
+;
+; Fill in CCP / BDOS link
+;
+
+	ld	hl,(BDOS+1)		; Copy bdos address to:
+	ld	(cpyser+1),hl		;   cpyser+1   (for serial number)
+	ld	(bdoslnk1+1),hl		;   bdoslnk1+1 (for limited mem.size)
+
+
+;
+; Calculate memory-address for resident driver
+;
+
+	ld	hl,(WMBT+1)			; address of warmboot routine
+	ld	de,(BDOS+1)			; address of bdos module
+	or	a
+	sbc	hl,de				; warmboot-bdos
+
+	ld	de,-(4a03H-3c06H)		; warmboot-bdos 
+	add	hl,de				; standard offset bdos/bios?
+	ld	a,l
+	or	h				; Equal?
+	jr	nz,main2			;   No: jump
+
+	ld	hl,(WMBT+1)			;   Yes: standard offset
+	ld	de,-(4a03H-3400H+ressiz+6)	;	 -(warmboot-ccp+size+6)
+	add	hl,de
+	jr	main21
+
+main2:	ld	hl,(BDOS+1)			;   No: "BDOS" (foreign module)
+	ld	de,-(ressiz+6)			;	 -(size+6)
+	add	hl,de				; (leave room for serialnumber)
+
+main21:	ld	a,l				; Make bdosaddress ...6H
+	and	0fH
+	cp	06H
+	jr	z,main22
+	dec	hl
+	jr	main21
+
+main22:	ld	(resadd),hl			; Address of resident driver
+	ld	(BDOS+1),hl			; (Reflects limited memory size)
+
+
+;
+; Calculate relocation offset for resident driver
+;
+
+main3:	ld	de,begres
+	or	a
+	sbc	hl,de			; Calculate offset
+	ld	(offset),hl
+
+
+;
+; Relocate
+;
+	call	reloc			; Relocate resident program
+
+
+;
+; Fill in jump to CCP (warmboot)
+;
+
+	ld	hl,(WMBT+1)
+	ld	de,-(4a03H-3400H)	; Wboot - CCP
+	add	hl,de
+	ld	(wboot5+1),hl		; jp CCP
+
+
+	page
+;
+; Fill in ccpret into CCP
+;
+					; Address of link to CCP
+main4:	ld	hl,ccpret		; to be relocated
+	ld	ix,(retadd)		; CCP returnaddress
+	dec	ix
+	dec	ix
+	ld	(ix+0),l		; Overwrite CCP  call 100H
+	ld	(ix+1),h
+
+
+;
+; Fill in original INT $38 vector (RST $38, int mode 1) in isr
+;
+
+	ld	hl,(ISRVEC+1)		; Get current vector
+	ld	(isrjp+1),hl		;   and save it in our int.serv.routine
+
+
+;
+; Fill in interrupt vector
+;
+
+	ld	a,JP			; Place jp instruction code at
+	ld	(ISRVEC),a		;   interrupt vector address
+main5:	ld	hl,isr			; to be relocated
+	ld	(ISRVEC+1),hl
+
+
+;
+; Fill in jump tables
+;
+
+	ld	hl,(WMBT+1)		; Get address of bios jumptable
+	ld	de,jpold1
+	ld	bc,jpold1x-jpold1
+	ldir				; Fill in original bios table part 1
+
+	ld	hl,(WMBT+1)		; Get address of bios jumptable
+	ld	de,3*(12-0)		; read-wboot
+	add	hl,de
+	ld	de,jpold2
+	ld	bc,jpold2x-jpold2
+	ldir				; Fill in original bios table part 2
+
+	ld	hl,jpnew1		; Get address of new bios jumptable #1
+	ld	de,(WMBT+1)
+	ld	bc,jpnew1x-jpnew1
+	ldir				; Overwrite original bios jumptable
+
+	ld	hl,(WMBT+1)
+	ld	de,3*(12-0)		; read-wboot
+	add	hl,de	
+	ex	de,hl
+	ld	hl,jpnew2		; Get address of new bios jumptable #2
+	ld	bc,jpnew2x-jpnew2
+	ldir				; Overwrite original bios jumptable
+
+
+;
+; Move resident code to calculated address
+;
+
+	ld	hl,begres		; Begin of resident part
+	ld	de,(resadd)		; Address of resident part
+	ld	bc,endres-begres	; Number of bytes to move
+	ldir
+
+	page
+;
+; Initialize resident driver part
+;
+
+main6:	call	q_init			; Initialize queue structure
+
+
+;
+; Enable PIA crb interrupts
+;
+
+	in	a,(PIACRB)		; Enable PIA crb interrupts
+	or	CRBINTM
+	out	(PIACRB),a
+
+
+;
+; Enable Z80 interrupt (mode 1)
+;
+
+	im	1			; Interruptmode 1: vector at address $38
+	ei				; Enable interrupts on Z80
+
+
+;
+; Restore old stackpointer
+;
+
+mainx:	ld	hl,(oldsp)
+	ld	sp,hl
+
+	jp	WMBT			; Return to CCP
+
+
+;******************************************************************************
+;*
+;*	End of main line
+;*	
+;******************************************************************************
+
+
+	subttl	[ keybuf.main.jumptable ]
+	page
+;******************************************************************************
+;*
+;*	Jump tables
+;*	
+;******************************************************************************
+
+; Jump table to replace original bios jumptable 
+
+jpnew1:					; Part 1
+jpnew11:jp	wboot	
+jpnew12:jp	const
+jpnew13:jp	conin
+jpnew1x:
+
+jpnew2:					; Part 2
+jpnew21:jp	read
+jpnew22:jp	write
+jpnew2x:
+
+	
+	subttl	[ keybuf.main.isresident ]
+	page
+;******************************************************************************
+;*
+;*	Check for resident driver present
+;*	
+;******************************************************************************
+
+isres:	ld	hl,endres		; location to start search for 
+	ld	de,idstr		; location with identificationstring
+	ld	bc,0f800H-endres	; maximum number of char's to compare
+
+isres1:	ld	a,(de)			; get first character
+	cpir				; repeat until a=(hl) or bc=0
+
+	ld	a,c			; notfound? (bc = 0)
+	or	b
+	jr	z,isres3		; yes: return zero
+
+	call	strcmp			; do strings match?
+	or	a
+	jr	z,isres2		;   Yes: return nonzero
+	inc	hl			;   No : try next location
+	jr	isres1
+
+isres2:	ld	a,1			; return z-flag = 0
+	or	a
+isres3:	ret
+
+
+strcmp:	push	hl			; save string pointers
+	push	de
+strcmp1:
+	ld	a,(hl)
+	cp	0			; end of string?
+	jr	z,strcmpx		;   yes: exit
+	ld	a,(de)
+	cp	0			; end of string?
+	jr	z,strcmpx		;   yes: exit
+	cp	(hl)			; *hl == *de ?
+	jr	nz,strmpx		;   no : return difference
+	inc	de			;   yes: inc pointers
+	inc	hl
+	jr	strcmp1			; next character
+strcmpx:
+	ld	a,(de)			; return (*hl - *de);
+	neg
+	add	a,(hl)
+	pop	de			; restore string pointers
+	pop	hl
+	ret				; return
+
+
+	subttl	[ keybuf.main.relocation ]
+	page
+;******************************************************************************
+;*
+;*	Relocation module
+;*	
+;******************************************************************************
+
+;
+; Relocation table
+; Table with addresses that are to be relocated
+;
+
+reloctab:
+	dw	main4+1			; Link to CCP
+	dw	main5+1			; Vector for interrupt service routine
+	dw	main6+1			; Initialization of queue structure
+
+	dw	jpnew11+1		; Jumptable part 1
+	dw	jpnew12+1
+	dw	jpnew13+1
+
+	dw	jpnew21+1		; Jumptable part 2
+	dw	jpnew22+1
+
+	dw	bdoslink+1		; jp bdoslnk1
+	dw	cpyser1+1		; Copy serialnumber
+
+	dw	wboot1+1		; BIOS routines
+	dw	wboot2+1
+	dw	wboot3+1
+	dw	wboot4+1
+
+	dw	const+1
+	dw	conin+1
+	dw	conin1+1
+
+	dw	read1+1
+	dw	write1+1
+
+	dw	isr1+1			; Interrupt service routine
+	dw	isr2+1
+	dw	isr3+1
+	dw	isr4+1
+	dw	isr5+1
+	dw	isr6+1
+	dw	isr7+1
+	dw	isr9+1
+	dw	break+1
+
+	dw	q_ini1+1		; Queue-initialization routine
+	dw	q_ini2+1
+	dw	q_ini3+1
+	dw	q_ini4+1
+	dw	q_ini5+1
+
+	dw	q_app1+2		; Queue-append routine
+	dw	q_app2+1
+	dw	q_app3+1
+	dw	q_app4+2
+	dw	q_app5+1
+	dw	q_app6+1
+	dw	q_app8+1
+
+	dw	q_rem1+2		; Queue-remove routine
+	dw	q_rem2+1
+	dw	q_rem3+1
+	dw	q_rem4+2
+	dw	q_rem5+1
+	dw	q_rem6+1
+	dw	q_rem8+1
+
+reloctabx:
+
+reloctabsiz	equ	(reloctabx-reloctab)/2
+
+	page
+;
+; Relocation routine
+;
+
+reloc:
+	ld	de,(offset)
+	ld	ix,reloctab
+	ld	bc,reloctabsiz		; # entries
+
+reloc1:	ld	l,(ix)			; Get address of word to relocate
+	ld	h,(ix+1)
+	push	hl
+	pop	iy
+
+	ld	l,(iy)			; Get word to relocate
+	ld	h,(iy+1)
+	add	hl,de			; Relocate
+	ld	(iy),l			; Put back relocated word
+	ld	(iy+1),h
+
+	inc	ix			; Adjust relocation table pointer
+	inc	ix
+	dec	bc			; Adjust entry-count			
+	ld	a,c			; More to do?
+	or	b
+	jr	nz,reloc1		;   Yes
+
+	ret				;   No: return
+
+
+	subttl	[ keybuf.main.variables ]
+	page
+;******************************************************************************
+;*
+;*	(Un)initialized variables
+;*
+;******************************************************************************
+
+logo:	db	'Bondwell 12 keyboard-buffer', CR, LF
+	db	'Version 2.00 - 1 Feb 1989', CR, LF, '$'
+
+usage:	db	'Usage: Keybuf [-h] [-a] [-d]', CR, LF
+	db	'-h: this help', CR, LF
+	db	'-a: activate driver', CR, LF
+	db	'-d: deactivate driver', CR, LF, '$'
+
+cpm22:	db	'CP/M 2.2 supported only.$'
+
+warng:	db	'Z80 interrupt mode 1 or RST 38h probably in use.', CR, LF
+	db	'Continue (y/n) ? $'
+
+resalr:	db	'Keybuf already resident.$'
+resnow:	db	'Keybuf installed.$'
+
+stsact:	db	'Status: active.$'
+stsina:	db	'Status: inactive.$'
+
+
+oldsp:	ds	2			; Old stackpointer value
+retadd:	ds	2			; CCP return address
+resflg:	ds	1			; Driver resident flag
+resadd:	ds	2			; Calculated resident address
+offset:	ds	2			; Relocation offset
+	ds	STACKSIZ		; Stack for this program
+stack:
+
+	subttl	[ keybuf.driver ]
+	page
+;******************************************************************************
+;*
+;*	Resident part of keybuf
+;*
+;******************************************************************************
+
+begres:					; Start of resident part
+
+
+;
+; Link to Bdos
+;
+
+bdoslink: jp	bdoslnk1		; new jp bdoslink at address $6
+					; reflects limited memory size
+bdoslnk1: jp	BDOSADD
+
+
+;
+; Program return to CCP
+;
+
+ccpret:	call	0100H			; Execute program
+					; return to CCP (via cpyser)
+
+
+;
+; Copy CCP/BDOS serialnumber (6 byte) to bdoslink -6
+;
+
+cpyser:	ld	hl,BDOSADD
+	ld	de,-6
+	add	hl,de
+cpyser1:ld	de,bdoslink-6
+	ld	bc,6
+	ldir
+	ret
+
+
+;
+; Jump table filled in with original bios jumptable
+;
+
+jpold1:					; Part 1
+jwboot:	jp	BIOSWBOOT
+jconst:	jp	BIOSCONST
+jconin:	jp	BIOSCONIN
+jpold1x:
+
+jpold2:					; Part 2
+jread:	jp	BIOSREAD
+jwrite:	jp	BIOSWRITE
+jpold2x:
+
+
+
+	subttl	[ keybuf.driver ]
+	page
+;******************************************************************************
+;*
+;*	Keybuf BIOS routines
+;*
+;******************************************************************************
+
+
+	subttl	[ keybuf.driver.wboot ]
+;******************************************************************************
+;*
+;*	Wboot routine
+;*
+;******************************************************************************
+
+wboot:	ld	sp,080H			; Reset stackpointer
+
+wboot1:	ld	hl,bdoslnk1		; Establish bdos route again
+wboot2:	ld	(bdoslink+1),hl
+wboot3:	ld	hl,bdoslink
+	ld	(BDOS+1),hl
+
+
+; Copy CCP/BDOS serialnumber
+
+wboot4:	call	cpyser			; Copy CCP/BDOS serialnumber
+
+
+; Jump to CCP with current drive
+
+	ld	a,(CURDISK)		; Jump to CCP with current disk in c
+	and	0ffH
+	ld	c,a
+
+wboot5:	jp	CCP			; Continue in CCP
+
+
+	subttl	[ keybuf.driver.const ]
+	page
+;******************************************************************************
+;*
+;*	Console status routine
+;*
+;******************************************************************************
+
+const:	ld	a,(que_emp)
+	dec	a			;   0: no character available
+	ret				; $FF: character available
+
+
+	subttl	[ keybuf.driver.conin ]
+;******************************************************************************
+;*
+;*	Console input routine
+;*
+;******************************************************************************
+
+conin:	ld	a,(que_emp)		; Wait for character
+	or	a			;   1: no character available
+					;   0: character available
+	jr	nz,conin
+
+	di
+conin1:	call	q_remove		; Get character
+	ei
+	ret
+
+
+	subttl	[ keybuf.driver.read ]
+	page
+;******************************************************************************
+;*
+;*	Disk read routine
+;*
+;******************************************************************************
+
+read:	di				; Disable interrupt during disk-read 
+read1:	call	jread
+	ei
+	ret
+
+
+	subttl	[ keybuf.driver.write ]
+;******************************************************************************
+;*
+;*	Disk write routine
+;*
+;******************************************************************************
+
+write:	di				; Disable interrupt during disk-write
+write1:	call	jwrite
+	ei
+	ret
+
+
+	subttl	[ keybuf.driver.isr ]
+	page
+;******************************************************************************
+;*
+;*	Interrupt service routine
+;*
+;*
+;******************************************************************************
+
+isr:	
+
+;
+; Test for interrupt source:
+;   if source is PIA then perform our interrupt service routine
+;   else continue at original service routine
+;
+
+	push	af			; Save af register
+
+	in	a,(PIACRB)		; Is PIA interrupt-source?
+	and	CRBINTF
+	jr	nz,isr0			;   Yes: continue our service routine
+
+	pop	af			;   No : restore saved registers
+isrjp:	jp	INT38			;          and perform original INT $38
+
+
+;
+; Save stackpointer, define own stack
+;
+
+isr0:	push	hl			; Save hl register
+
+	ld	hl,0			; Save external stackpointer
+	add	hl,sp
+isr1:	ld	(extstk),hl
+isr2:	ld	sp,locstk		; Define local stack
+
+	push	bc			; Save register environment
+	push	de
+	push	ix
+	push	iy
+
+	ld	a,1			; Set interrupt signal
+isr3:	ld	(intflg),a
+					; Interrupt source taken by BIOSCONIN
+isr4:	call	jconin			; Get character
+	cp	CTRLBRK			; Is it CTRLBRK?
+	jr	z,break			;   Yes: jump
+	ld	e,a			;   No : save character
+
+isr5:	ld	a,(que_ful)		; Check for full queue
+	or	a
+	jr	nz,isr7			; Jump if buffer is full
+
+	ld	a,e			; Restore saved character
+isr6:	call	q_append		; Queue not full yet
+
+isr7:	call	jconst			; Char available (specially for function keys)
+	cp	0ffH			; Character available?
+	jr	z,isr4			;   Yes: jump isr4
+
+isr8:	in	a,(PIACRB)		; Enable PIA crb interrupts again
+	or	CRBINTM
+	out	(PIACRB),a
+
+	pop	iy			; Restore register environment
+	pop	ix
+	pop	de
+	pop	bc
+
+
+;
+; Restore old stackpointer
+;
+
+isr9:	ld	hl,(extstk)		; Restore external stackpointer
+	ld	sp,hl
+
+	pop	hl			; Restore hl register
+	pop	af			; Restore af register
+
+	ei				; Enable interrupts again
+	reti				; Return from interrupt
+
+	page
+;
+; Ctrl-Break detected
+;
+
+break:	call	q_init			; Clear keyboard buffer
+
+	xor	a
+	ld	(CURDISK),a		; Current disk becomes A:
+
+	in	a,(PIACRB)		; Enable PIA crb interrupts again
+	or	CRBINTM
+	out	(PIACRB),a
+
+	ei				; Enable Z80 interrupt again
+	jp	WMBT			; Warmboot
+
+	subttl	[ keybuf.driver.queue ]
+	page
+;******************************************************************************
+;*
+;*   Routines in this module
+;*
+;*   q_init   : initialize queue structure
+;*   q_append : add a character to the end of the queue 
+;*   q_remove : remove a character from the front of the queue
+;*
+;******************************************************************************
+
+;******************************************************************************
+;*
+;*   Global variables in this module
+;*
+;*   q_empty  : no more characters left in queue	
+;*   q_full   : no space left for new characters in queue
+;*
+;******************************************************************************
+
+
+;******************************************************************************
+;*
+;*   Calling convention
+;*
+;*   routine	input values			return value		
+;*
+;*   q_init   : none				no return
+;*   q_append : register A: character		no return		
+;*   q_remove : none				Register A: character
+;*
+;*
+;*   variable
+;*
+;*   q_empty  : true (1) if queue is empty, false (0) otherwise
+;*   q_full   : true (1) if queue is full, false (0) otherwise
+;*
+;******************************************************************************
+
+	subttl	[ keybuf.driver.que_init ]
+	page
+;******************************************************************************
+;*
+;*	q_init
+;*
+;*	Input		  : none
+;*	Return value	  : none
+;*
+;*	Registers used	  : a, hl
+;*	Registers affected: f
+;*
+;******************************************************************************
+
+;******************************************************************************
+;*
+;*	q_init()			/* Initialize queue structure	     */
+;*	{
+;*	   que.ip = que.op = que.buf;
+;*	   que.emp= 1;
+;*	   que.ful= 0;
+;*	}
+;*
+;******************************************************************************
+
+q_init:	push	af
+	push	hl
+
+q_ini1:	ld	hl,que_beg		; que.ip = que.op = que.buf;
+q_ini2:	ld	(que_ip),hl
+q_ini3:	ld	(que_op),hl
+
+	xor	a
+q_ini4:	ld	(que_ful),a		; que.ful = 0;
+	inc	a
+q_ini5:	ld	(que_emp),a		; que.emp = 1;
+
+	pop	hl
+	pop	af
+	ret
+
+
+	subttl	[ keybuf.driver.que_append ]
+	page
+;******************************************************************************
+;*
+;*	q_append
+;*
+;*	Input		  : register A: char to append
+;*	Return value	  : none
+;*
+;*	Registers used	  : a, de, hl
+;*	Registers affected: f
+;*
+;******************************************************************************
+
+;******************************************************************************
+;*
+;*	que_append(c)			 /* Append a character to the buffer */
+;*	unsigned char c;
+;*	{
+;*	   *que.ip = c;
+;*	
+;*	   if (++que.ip == &que.buf[BUFSIZE])
+;*	      que.ip= que.buf;
+;*
+;*	   if (que.ip == que.op)
+;*	      que.ful= 1;
+;*
+;*	   que.emp= 0;
+;*	}
+;*
+;******************************************************************************
+
+q_append:
+
+	push	de
+	push	hl
+
+q_app1:	ld	de,(que_ip)			
+	ld	(de),a			; *que.inp = c;
+	inc	de
+q_app2:	ld	hl,que_end
+	or	a			; (Clear carry)
+	sbc	hl,de
+	jr	nz,q_app4
+q_app3:	ld	de,que_beg		; que.ip= que.buf;
+
+q_app4:	ld	(que_ip),de
+q_app5:	ld	hl,(que_op)		; if (que.ip == que.op)
+	or	a
+	sbc	hl,de
+	jr	nz,q_app7
+	ld	a,1
+q_app6:	ld	(que_ful),a		; que.ful= 1;
+
+q_app7:	xor	a
+q_app8:	ld	(que_emp),a		; que.emp= 0;
+
+	pop	hl
+	pop	de
+	ret
+
+	subttl	[ keybuf.driver.que_remove ]
+	page
+;******************************************************************************
+;*
+;*	q_remove
+;*
+;*	Input		  : none
+;*	Return value	  : Register a: character removed
+;*
+;*	Registers used	  : a, de, hl
+;*	Registers affected: a
+;*
+;******************************************************************************
+
+;******************************************************************************
+;*
+;*	unsigned char que_remove()     /* Remove a character from the buffer */
+;*	{
+;*	   unsigned char c;
+;*	
+;*	   c= *que.op;
+;*
+;*	   if (++que.op == &que.buf[BUFSIZE])
+;*	      que.op= que.buf;
+;*
+;*	   if (que.op == que.ip)
+;*	       que.emp= 1;
+;*
+;*	   que.ful= 0;
+;*
+;*	   return (c);
+;*	}
+;*
+;******************************************************************************
+
+q_remove:
+
+	push	de
+	push	hl
+
+q_rem1:	ld	de,(que_op)			
+	ld	a,(de)			; c = *que.op;
+	push	af
+	inc	de
+q_rem2:	ld	hl,que_end
+	or	a			; (Clear carry)
+	sbc	hl,de
+	jr	nz,q_rem4
+q_rem3:	ld	de,que_beg		; que.op= que.buf;
+
+q_rem4:	ld	(que_op),de
+q_rem5:	ld	hl,(que_ip)		; if (que.op == que.ip)
+	or	a
+	sbc	hl,de
+	jr	nz,q_rem7
+	ld	a,1
+q_rem6:	ld	(que_emp),a		; que.emp= 1;
+
+q_rem7:	xor	a
+q_rem8:	ld	(que_ful),a		; que.ful= 0;
+
+	pop	af
+	pop	hl
+	pop	de
+	ret
+
+
+	subttl	[ keybuf.driver.variables]
+	page
+;******************************************************************************
+;*
+;*	Resident driver variable area
+;*
+;******************************************************************************
+
+;
+; Queue
+;
+
+QUESIZE	equ	40		; Keyboard buffer size
+
+que_emp:ds	1		; Queue empty flag
+que_ful:ds	1		; Queue full  flag
+que_ip:	ds	2		; Input pointer
+que_op:	ds	2		; Output pointer
+
+que_beg:ds	QUESIZE		; Begin of buffer
+que_end	equ	$		; End of buffer
+
+
+;
+; Stack
+;
+
+LSTKSIZ	equ	30		; Size of local stack
+
+extstk:	ds	2		; External stackpointer value
+	ds	LSTKSIZ		; Local stack for interrupt service routine
+locstk:				; Local stacktop
+
+
+;
+; Other
+;
+
+actflg:	ds	1		; Keybuf active flag
+rdwrfl:	ds	1		; Disk Read/Write flag: 
+				;  1: disable interrupt within BIOS rd/wr oper.
+				;  0: disable interrupt for BIOS read/write routines
+
+
+;
+; Keybuf identificationstring
+;
+
+idstr:	db	'Keybuf identififcation',0
+idstrx:
+idlen	equ	idstrx-idstr
+
+
+endres:				; End of resident driver
+ressiz	equ	endres-begres	; Size of resident driver
+
+
+	subttl	[ keybuf.symboltable ]
+	end			; end of program
+
+	
+;***  End of file  ***
+

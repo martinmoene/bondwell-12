@@ -1,0 +1,1019 @@
+	TITLE	VDISK
+	.Z80
+	aseg
+
+
+;			V D I S K . M A C
+
+	SUBTTL	Vdisk: [History]
+	PAGE	88
+;------------------------------------------------------------- Vdisk.mac ------
+;
+;	VDISK.MAC
+;
+;	Bondwell 12  Virtual Disk
+;
+;
+;	Copyright (C)	1987	M.J. Moene
+;				1098 EC Amsterdam
+;
+;	Program derived from:
+;				Databus, februari 1985
+;				Meer performance met uitbreiding opslageenheden.
+;				Het aanpassen van CP/M aan een opslageenheid
+;				E.L. van 't Hoff
+;
+;
+;	With this program you can install a virtual disk (RAM disk) on your
+;	Bondwell 12/14 computer.
+;	The virtual disk (VD) uses the additional memory banks 2 & 3 of the
+;	standard Bondwell 12/14 computer.  Optionally banks 4..9 can be added
+;	with a small hardware extension.
+;	Virtual Disk space (Directory + data) ranges from 32 kbyte for a single
+;	bank to 256 kbyte for a fully implemented virtual disk. 
+;
+;
+;	Use:
+;		D>vdisk [-f]	[]: optional
+;
+; 		vdisk -f	vdisk format & initialize virtual-drive routines
+;		vdisk		initialize virtual-drive routines only
+;
+;	Note:
+;
+;	Installing the virtual disk after a cold boot must be done with
+;	the '-f' option.
+;
+;
+;	Version         1.8	Errors in comment for modification of 
+;	Date	 1988-03-04	computerboard removed (wire cuts, new wires).
+;
+;	Version		1.7	Old BIOS jump-table in vdbios removed,
+;	Date	 1987-02-19	savstk routine shrinked. 
+;                               All done to use less space.
+;
+;	Version		1.6	Read and write routines use a local stack now,
+;	Date	 1987-10-14	so programs are allowed to call these routines
+;				directly; version 1.5 and before would crash if
+;				a program called the read- or write-routine and
+;				the stackpointer pointed into memory bank 1,
+;				(sp --> address <$8000).
+;
+;	Version		1.5	Modification description corrected.
+;	Date	 1987-02-15	
+;
+;	Version		1.4	Directory buffer now shared with A: & B:
+;	Date	 1987-02-09	  drives. Program doesn't overwrite function
+;				  keys anymore ($f6bf..f7b3).
+;
+;	Version		1.3	Hardware extension extended to give a 
+;	Date	 1987-02-02	refreshed A7.
+;
+;	Version:	1.2	Vdisk without '-F' option: program ends with
+;	Date:	 1987-01-20	  warmboot to correctly init. C: drive and
+;				  make directory visible again.
+;
+;	Version:	1.1	Warmboot from VD now logs in on VD again.
+;	Date:	 1987-01-20
+;
+;	Version:	1.0	
+;	Date:	 1987-01-20
+;
+;	Version:	0.0	Setup.
+;	Date:	 1987-01-16
+;
+	SUBTTL	Vdisk: [Hardware extension]
+	PAGE
+;---------------------------------------------------- Hardware extension ------
+;
+;	Bondwell 12/14 Bank select and refresh
+;	
+;	Modifications to the Bondwell 12/14 Microprocessor board
+;
+;	To implement the memory extension with xx256 memory, instead of
+;	the planned extension with xx64 memory chips, a couple of 
+;	modifications has to be made to the Bondwell 12/14 main board.
+;	The modifications concern the generation of row address A7 with 
+;	refresh and row address A8 and column address A16 and a virtual
+;	disk active signal capable of driving a LED.  The generation of
+;	the extra signals is done by the 'Bank select & refresh' circuit.
+;
+;	First some wires on the main board have to be changed.  These 
+;	       modifications are described below.
+;	Second the wires from the 'Bank select & refresh' extension
+;	       printed circuit board (10 pin Molex connector) are to be 
+;	       connected to the points as described with the pcb layout.
+;
+;	
+;	Wire cuts
+;	---------
+;
+;	Signal		Cut between
+;
+;	Component side
+;	CAS		IC52, pin 8  (74LS32)  --  IC53, pin 1  (xx256)
+;	A8		IC60, pin 1  (xx256)   --  IC61, pin 15 ( 4164)
+;	A7		IC60, pin 9  (xx256)   --  IC61, pin 9  ( 4164)
+;
+;	Solder side
+;	A7		IC59, pin 9  (xx256)   --  IC44, pin 9  (74LS157)
+;
+;
+;	New wires
+;	---------
+;	
+;	Signal		Wire between
+;
+;	A7		IC44, pin 9  (74LS157) --  IC61, pin 9  (4164)
+;	CAS		IC52, pin 8  (74LS32)  --  IC61, pin15  (4164)
+;
+	PAGE
+;	Bondwell 12/14 Bank select and refresh
+;
+;	Circuit diagram
+;
+;
+;	** Generation of A8
+;
+;
+;	   R/Cn    O-----------------------+
+;					   |
+;          O2      O---------+             |
+;	                     |E            |S
+;	                  +-----+       +-----+                       
+;	               D1 |     | Q1  1A|     |                       
+;	   O1      O------|     |-------|     |1Y                     
+;	                  |LS174|       |LS158|O-------------------O A8 (xx256)
+;	   O0      O------|     |-------|     |                       
+;	               D2 |     | Q2  1B|     |                       
+;	                  +-----+       +-----+	                
+;
+;
+;	** Generation of A7 with refresh
+;
+;	                  +-----+       +-----------------+
+;          MRQn    O------|     |    CLK| -               |                       
+;	                  |LS02 |O-+----|  V    HEF4040   |                       
+;          RFRn    O-+----|     |  |    |   -             |                       
+;	             |    +-----+  |    +-----------------+                       
+;	             |             |      |O7          |MR                        
+;	             |  ^          |      |           ---                         
+;	             |  |    4k7   |      |                                         
+;	             |  +---====---+      |          LS151                        
+;	             |                    |         +-----+                       
+;	             |                    |   A7org |     |                       
+;                    |                    |  O------|D3   |                       
+;	             |                    |   A7new |     |                       
+;	             |                    +---------|D2   |Y                      
+;	             |                        A15   |     |--------O A7mem (xx256)
+;	             |                       O---+--|D1   |                       
+;	             |                           |  |     |                       
+;	             |                           +--|D0   |---+ Strobe            
+;	             |                              |     |---+ C                 
+;	             |                              +-----+   |                   
+;	             |                               |A |B   ---                  
+;	             |                               |  |                         
+;	             +-------------------------------+  |         
+;					                |
+;	  R/Cn     O------------------------------------+
+;
+;
+;	LS151                     
+;
+;	C B A  n  Selected (A7mem)
+;	--------------------------
+;	0 0 0  0  A15 (Column)
+;	0 0 1  1  A15 (Column)
+;	0 1 0  2  A7new  (row)
+;	0 1 1  3  A7org  (row)
+;
+;
+;	** Virtual disk activity indication
+;
+;	                  +-----+       +-----------------+
+;		      ----|     |       |     555         |  330E
+;	   O2      O-+    |LS02 |O------|T               O|--====--O LED
+;	              ----|     |       |        D Thr    |        O
+;	                  +-----+    ^  +-----------------+        |
+;	                             |     100k  | | 100nF         |
+;	                             +-----====--+-+--U---+        |
+;	                                                  |        |
+;	                                                 ---      ---
+;
+;
+	PAGE
+;	Bondwell 12/14 Bank select and refresh
+;
+;	Printed circuit board layout
+;
+;
+;	         100k           330E
+;	  100nF    100nF          4k7
+;	+---------------------------------------+
+;	| .     || | +-----+    |||           . |
+;	|       |U = > 555 |    |UU  : LED      |
+;	|       || | +-----+    |||             |
+;	|  		                       	|
+;	|   |   +----------+	+----------+	|
+;	|   =   >  74LS158 |	>  HEF4040 |	|
+;	|   |   +----------+	+----------+	|
+;	|					|
+;	|+5 .   +----------+	+--------+	|
+;	| 0 .   >  74LS174 |	>  74LS02|	|
+;	|       +----------+	+--------+	|
+;	|					|
+;	|	 ..........	+----------+	|
+;	|	 1	  10	>  74LS151 |	|
+;	|	            	+----------+	|
+;	| .				      .	|
+;	+---------------------------------------+
+;		 ||||||||||
+;		 ||||||||||____ MRQn
+;		 |||||||||_____ RFRn
+;		 ||||||||______ A15
+;		 |||||||_______ A8
+;		 ||||||________ A7org
+;		 |||||_________ A7mem
+;		 ||||__________ O2
+;		 |||___________ O1
+;		 ||____________ O0
+;		 |_____________ R/Cn
+;
+;
+;	10 pin Molex
+;	------------------------------------------
+;	  1.	brown	R/Cn    (IC44, LS157, p1 )
+;	  2.    red	O0	(IC18, LS259, p4 )
+;	  3.    orange	O1	(IC18, LS259, p5 )
+;	  4.    yellow	O2	(IC18, LS259, p6 )
+;	  5.    green	A7mem	(IC53, xx256, p9 )
+;	  6.    blue	A7org	(IC35,   Z80, p37)
+;	  7.    violet	A8	(IC53, xx256, p1 )
+;	  8.    grey	A15	(IC44, LS157, p11)
+;	  9.    white	RFRn	(IC35,   Z80, p28)
+;	 10.    black	MRQn	(=R/Cn)
+;
+
+	SUBTTL	VDisk: [Installation.global-constants]
+	PAGE
+;------------------------------------------------------ Global constants ------
+;
+;
+
+true	equ	1			; boolean true
+false	equ	0			; boolean false
+
+capson	equ	false			; caps-lock doesn't indicate
+					;   virtual-disk activity
+
+vd	equ	'C'-'A'			; code for drive 'C:'
+vdsize	equ	256			; 256 k directory + data
+vdboff	equ	2			; bank offset (first vdisk bank)
+vdaddr	equ	0f500H			; Uninitialized memory used in BIOS 
+
+bnksiz	equ	32			; Bondwell 12 Bank size: 32 k
+secsiz	equ	128			; Sector size
+
+ccp	equ	0d403H			; CCP entry
+dirbuf	equ	0f2cdH			; directory buffer (also drive A: & B:)
+stack	equ	0f800H			; Stack for this program
+
+bdos	equ	5			; Bdos entry
+pchr	equ	2			; Bdos print character function
+pstr	equ	9			; Bdos print sting function
+
+cr	equ	0dH			; carriage return code
+lf	equ	0aH			; linefeed code
+
+
+IF1
+	.printx	Generating Virtual-disk initialization program.
+	.printx	System: Bondwell 12/14.
+	.printx	Operating system: CP/M 2.2.
+	IF capson EQ true
+	.printx	Caps-lock indicates V-disk activity (capson equ true).
+	ELSE
+	.printx	Caps-lock not used by this program (capson equ false).
+	ENDIF
+ENDIF
+
+	SUBTTL	VDisk: [Installation.main-line]
+	PAGE
+;------------------------------------------------------------- Main line ------
+;
+;
+
+	org	100h			; CP/M programs usually start here
+	jp	start			; Skip opening message
+
+
+;
+; Copyright
+;
+
+	db	'<Copyright 1987 M.J. Moene>'
+
+
+;
+; Opening message
+;
+
+msg:	db	cr,lf
+	db	'  < VDISK >',cr,lf,lf
+	db	'  Bondwell 12/14',cr,lf
+	db	'  254 k Virtual Disk',cr,lf
+	db	'  64 Directory entries',cr,lf
+	db	'  Version 1.8 - 4 mar 1987',cr,'$'
+
+start:	ld	hl,0			; save current stackpointer
+	add	hl,sp
+	ld	(oldsp),hl
+	ld	sp,stack		; define new stack
+
+	ld	c,pstr			; print opening message
+	ld	de,msg
+	call	bdos
+
+
+;------------------------------------------------------ Check for option ------
+;
+; Option	vdsk -f		(vdisk format & initialize c-drive routines)
+;		vdsk		(initialize c-drive routines only)
+;
+;		Remark:		Option only usefull if directory isn't
+;				cleared at executing vdsk (without -f).
+;
+
+opt:	ld	hl,80H			; Commandline tail: length,char,...
+	ld	a,(hl)			; length
+	cp	0			; option added?
+	jr	z,optx			;   no: skip
+	inc	hl			;   yes: check for '-F'  (skip space)
+	inc	hl
+	ld	a,(hl)
+	cp	'-'
+	jr	nz,optx			; no '-'
+	inc	hl
+	ld	a,(hl)
+	cp	'F'
+	jr	nz,optx			; no 'F'
+
+	ld	a,true			; fopt flag= true
+	ld	(fopt),a
+
+	jr	movfor			; option is '-F'
+optx:	jr	movpgm			; no option
+	
+
+;---------------------------------------------------------------- Format ------
+;
+; Format
+;
+;		Format virtual disk directory
+;
+
+formsg:	db	lf,'  Formatting ...',cr,'$'
+
+movfor:	ld	c,pstr			; print 'Formatting'
+	ld	de,formsg
+	call	bdos
+
+	ld	hl,initlow		; move format program to high memory
+	ld	de,vdaddr
+	ld	bc,initx-init		; init end - init begin: #bytes to move
+	ldir				; move
+
+	call	format			; format Vdisk directory
+
+
+;---------------------------------------------------- Move bios routines ------
+;
+; movpgm	move vdisk program to high RAM
+;
+
+movpgm:	ld	hl,vdbiosl		; vdbios low address: where to move from
+	ld	de,vdaddr		; destination: high memory (>7fffH)
+	ld	bc,vdbiosx-vdbios	; program size
+	ldir
+
+
+;-------------------------------------------- Reroute BIOS warmboot-tail ------
+;
+; wboot check for legal drive specification
+; change wboot  jp ccp  to  jp vdwbt
+;
+
+wbjccp	equ	0eaf9H			; address of jp ccp at end of bios wboot
+
+	ld	hl,vdwbt		; Virtual disk warmboot routine tail
+	ld	(wbjccp),hl		; change original wboot jump CCP to
+					;   jump vdwbt
+
+
+;--------------------------------------------- Overwrite BIOS jump-table ------
+;
+; movjpn	move new jump table
+;
+;		Replace old bios jump table by new table (tabnew)
+;
+
+jpoadd	equ	1			; address of old jump table
+jpbegin	equ	24			; jp seldsk - jp wboot
+
+
+	ld	bc,(jpoadd)
+	ld	hl,jpbegin
+	add	hl,bc
+	ex	de,hl			; de: destination
+	ld	hl,tabnew		; hl: source
+	ld	bc,tabnewx-tabnew	; bc: size
+	ldir				; copy
+
+
+;-------------------------------------------------- Restore stackpointer ------
+;
+; Restore stackpointer
+;
+
+	ld	hl,(oldsp)		; CCP stackpointer
+	ld	sp,hl
+
+
+;------------------------------------------------- End of initialization ------
+;
+; End of Vdisk initialization
+;
+
+	ld	c,pchr			; issue a linefeed
+	ld	e,lf
+	call	bdos
+
+	ld	a,(fopt)		; option '-F' used?
+	cp	true
+	ret	z			;   yes: return to CCP
+	jp	0			;   no: warmboot; to see dir. again
+
+	SUBTTL	VDisk: [Installation.storage]
+	PAGE
+;----------------------------------------------- (Un)initialized storage ------
+;
+; (Un)initialized storage
+;
+
+oldsp:	ds	2			; CCP stackpointer saved here
+fopt:	db	false			; option '-F' used flag
+
+
+;
+; tabnew	new bios jump table
+;
+
+jump	equ	0c3H		; code for JP
+
+tabnew:	db	jump
+	dw	seldsk
+	db	jump
+	dw	settrk
+	db	jump
+	dw	setsec
+	db	jump
+	dw	setdma
+	db	jump
+	dw	read
+	db	jump
+	dw	write
+tabnewx:
+
+	SUBTTL	VDisk: [BIOS.constants]
+	PAGE
+;---------------------------------------------------------------- Vdbios ------
+;
+; Vdbios	 Virtual-disk BIOS routines.
+;
+
+vdbiosl:.phase	vdaddr		; phase addresses to high memory
+
+vdbios	equ	$
+
+;
+; Addresses of old Bondwell 12 CP/M 2.2 bios routines.
+;
+				
+oseldsk equ	0ee90H		; seldsk 
+osettrk equ	0eee8H          ; settrk 
+osetsec equ	0eeedH          ; setsec 
+osetdma equ	0eef2H          ; setdma 
+oread	equ	0eef8H          ; read   
+owrite	equ	0ef0aH          ; write  
+                                         
+
+;
+; Parameters of DPH and DPB
+;
+
+xlt	equ	0000		; no sector translation
+spt	equ	256		; 256 sectors / track
+bsh	equ	4		; allocation blocksize = 2048
+blm	equ	15		;  ..
+bls	equ	2048		;  ..
+al0	equ	80H		; 1 reserved block for DIR.
+al1	equ	00
+off	equ	0		; no offset tracks
+drm	equ 	63		; 63: # dir. entries-1
+dsm	equ	vdsize/(bls/1024)-1	; capacity
+cks	equ	0		; (drm+1)/4; directory check vector
+exm	equ	1		; extent mask
+
+dirsiz	equ	(drm+1)*32/1024	; directory size (kbyte)
+
+
+;
+; Virtual-Disk Parameter Header:
+;
+
+vdph:	dw	xlt
+	dw	0000,0000,0000
+	dw	dirbuf
+	dw	vdpb
+	dw	csv
+	dw	alv
+
+
+;
+; Virtual-Disk parameter Block:
+;
+
+vdpb:	dw	spt
+	db	bsh,blm
+	db	exm
+	dw	dsm
+	dw	drm
+	db	al0,al1
+	dw	cks
+	dw	off
+
+
+	SUBTTL	Virtual-Disk: [BIOS.routines]
+	PAGE
+;--------------------------------------------------------- BIOS routines ------
+;
+; BIOS routines
+;
+
+;------------------------------------------------------ VD warmboot-tail ------
+;
+; vdwbt
+;
+;	Virtual disk warmboot tail
+;	Check for current drive = virtual disk
+;
+
+curdsk	equ	4		; address of current user/disk code
+
+vdwbt:	ld	b,c		; save drive code
+	ld	a,(curdsk)	; get current drive
+	cp	vd		; Virtual disk?
+	ld	c,a		;   code in reg c
+	jr	z,vdwbt1	;   yes: send vd-code to CCP
+	ld	c,b		; restore drive code
+vdwbt1:	jp	ccp		; continue in CCP
+
+
+;---------------------------------------------------------------- Seldsk ------
+;
+; Seldsk
+;
+;	input:
+;		Reg.c: 	drive
+;	output:
+;		Reg.hl:	vdph address
+;
+
+seldsk:	push	bc
+	ld	b,a			; save reg.a and c
+	ld	a,c			; a:=drive nbr.
+	ld	(drive),a		; drive nbr.
+	cp	vd			; drive = 'C'?
+	ld	a,b			;     (restore Reg.a)
+	pop	bc			;     (restore Reg.bc)
+	jp	nz,oseldsk		;   no: jump to old bios tabel
+	ld	hl,vdph			;   yes: hl = vdph address
+	ret				; return
+
+
+;---------------------------------------------------------------- Settrk ------
+;
+; Settrk 
+;
+;	input:
+;		Reg.bc:	track
+;	output:
+;		none
+;
+
+settrk:	ld	(track),bc		;tracknr. in track
+	jp	osettrk			; continue in original routine
+
+
+
+;---------------------------------------------------------------- Setsec ------
+;
+; Setsec 
+;
+;	input:
+;		Reg.bc:	sector
+;	output:
+;		none
+;
+
+setsec:	ld	(sector),bc		;sectornr in sector
+	jp	osetsec			;continue in original routine
+
+
+
+;---------------------------------------------------------------- Setdma ------
+;
+; Setdma 
+;
+;	input:
+;		Reg.bc:	dma address
+;	output:
+;		none
+;
+
+setdma:	ld	(dma),bc		;dma address in dma
+	jp	osetdma			;continue in original routine
+
+	PAGE
+;------------------------------------------------------------------ Read ------
+;
+; Read
+;
+;	input:	none
+;	output:	none
+;
+
+read:	call	checkd			; drive C:?
+	jp	nz,oread		;   no: old jump table
+
+	call	savstk			; create local stack
+	call	getadr			; hl: address of sector
+	ld	de,datbuf		; de: destination
+	ld	bc,secsiz		; bc: size
+	ldir				; copy
+
+	ld	a,1			; restore bank1
+	call	bank
+
+	ld	hl,datbuf		; hl: source
+	ld	de,(dma)		; de: destination
+	ld	bc,secsiz		; bc: size
+	ldir				; copy
+
+	ld	a,0			; return: no error
+	call	resstk			; restore external stack
+	ret
+
+
+;----------------------------------------------------------------- Write ------
+;
+; Write
+;
+;	input:	none
+;	output:	none
+;
+
+write:	call	checkd			; drive C:?
+	jp	nz,owrite		;   no: old jump table
+
+	call	savstk			; define local stack
+
+	ld	hl,(dma)		; hl: source
+	ld	de,datbuf		; de: destination
+	ld	bc,secsiz		; bc: size
+	ldir				; copy
+
+	call	getadr
+	ex	de,hl			; de: destination
+	ld	hl,datbuf		; hl: source
+	ld	bc,secsiz		; bc: size
+	ldir				; copy
+
+	ld	a,1			; restore bank1
+	call	bank
+
+	ld	a,0			; return: no error
+	call	resstk			; restore external stack
+	ret
+
+	SUBTTL	Virtual-Disk: [BIOS.co-routines]
+	PAGE
+;---------------------------------------------------------------- Checkd ------
+;
+; Checkd
+;
+;	input:
+;		none
+;	output:
+;		Z-flag=1 if drive is 'C', else Z-flag=0.
+;
+
+checkd:	push	bc
+	ld	b,a
+	ld	a,(drive)
+	cp	vd			; drive C:?
+	ld	a,b
+	pop	bc
+	ret				; return: drive==C:
+
+
+;---------------------------------------------------------------- Savstk ------
+;
+; Save external stack, create local stack
+;
+
+savstk:	ld	hl,0002			; save stackpointer, 
+	add	hl,sp			;   returnaddress of 
+	ld	(extstk),hl		;     calling routine removed
+	ex	(sp),hl			; get returnaddress of calling routine
+	ld	sp,locstk		; create local stack
+	jp	(hl)			; return to caller
+
+
+;---------------------------------------------------------------- Resstk ------
+;
+; Restore external stack.
+;
+
+resstk:	pop	hl			; get return address
+	ld	sp,(extstk)		; restore external stackpointer
+	jp	(hl)			; return to caller
+	
+
+;---------------------------------------------------------------- Getadr ------
+;
+; Getadr 	256 sectors/track
+;
+;	Select bank of current sector
+;	Return bank-address of current sector
+;
+;	input:
+;		none
+;	output:
+;		Reg.hl: address of sector (0..7f80)
+;
+
+getadr:
+
+; Select bank
+	ld	a,(track)		; low byte
+	add	a,vdboff		; Vdisktracks: >= bank2
+	call	bank			; select bank
+
+; Calculate address
+	ld	a,(sector)		; low byte
+	ld	h,a
+	ld	l,0
+	srl	h
+	rr	l			; hl: 0,S7..S1 : S0,0..0
+
+	ret
+
+	PAGE
+;------------------------------------------------------------------ Bank ------
+;
+;	BANK: select a memory-bank
+;
+;	input:
+;		Reg.a:	banknumber
+;	output:
+;		none
+;
+
+bnkdat: db	2,0,2,0		; bank0
+	db	2,0,2,1		; bank1
+	db	2,0,3,0		; bank2
+	db	2,0,3,1		; bank3
+	db	2,1,3,0		; bank4
+	db	2,1,3,1		; bank5
+	db	3,0,3,0		; bank6
+	db	3,0,3,1		; bank7
+	db	3,1,3,0		; bank8
+	db	3,1,3,1		; bank9
+
+bank:	
+
+IF capson EQ true
+
+	out	(9),a		; clear caps lock
+	cp	vdboff
+	jr	c,bank1
+	out	(8),a		; light caps lock
+bank1:
+
+ENDIF
+
+	
+; get address of bank-select code
+	ld	b,0		; clear reg b
+	ld	c,a
+	sla	c		; *4 (four byte/entry)
+	sla	c
+	ld	hl,bnkdat
+	add	hl,bc		; hl points to bankdat[index]
+
+; select LS158 switch (Quad data selector)
+	ld	c,(hl)
+	out	(c),a		; set LS259 O0
+	inc	hl
+	ld	c,(hl)
+	out	(c),a		; set LS259 O1
+
+	out	(4),a		; toggle LS174 strobe (Hex D flipflop)
+	out	(5),a		;   LS259, O2:  _|~|_
+	out	(4),a
+
+; select LS138 decoder
+	inc	hl
+	ld	c,(hl)
+	out	(c),a		; set LS259 O0
+	inc	hl
+	ld	c,(hl)
+	out	(c),a		; set LS259 O1
+
+	ret
+
+	SUBTTL	Virtual-Disk: [BIOS.storage]
+	PAGE
+;--------------------------------------------------------------- Storage ------
+;
+; Virtual disk local variables 
+;   (These don't have to be copied into Vdisk BIOS area)
+;
+
+;------------------------------------------------------------------- CSV ------
+;
+; Virtual-Disk directory check vector
+;
+
+IF  cks EQ 0
+ csv	equ	0		; no check vector (0)
+ELSE
+ csv:	rept	cks		; cks byte check vector
+	db	0
+	endm
+ENDIF
+
+
+;------------------------------------------------------------------- ALV ------
+;
+; Virtual-Disk storage allocation information buffer
+;
+
+alv:	ds	dsm/8+1		; 1 bit/bls [bit/k]
+
+
+;------------------------------------------------------------ Databuffer ------
+;
+; Virtual-Disk databuffer		high memory data buffer
+;
+
+datbuf:	ds	secsiz
+
+
+;------------------------------------------------------- Other variables ------
+;
+; Other variables
+;
+
+drive:	ds	1		; current drive
+track:	ds	2		; current track
+sector:	ds	2		; current sector
+dma:	ds	2		; current dma address
+
+
+;---------------------------------------------------- Local stackpointer ------
+;
+; Local stackpointer for read- and write-routines
+;
+
+locstk	equ	0F800H			; just below video-ram
+extstk:	ds	2			; save external stackpointer here
+
+vdbiosx:.dephase			; end of vdisk routines
+
+	SUBTTL	Vdisk: [format directory]
+	PAGE
+;---------------------------------------------------------------- Format ------
+;
+;	FORMAT Vdisk directory
+;
+
+initlow:.phase	vdaddr	
+
+init:
+format:	ld	a,dirsiz/bnksiz+vdboff	; format bank(s) with directory space
+format1:call	ibank
+	call	format2			; format bank
+	sub	1
+	cp	1
+	jr	nz,format1
+	call	ibank			; restore bank1
+	ret
+
+format2:push	af			; save reg a
+	ld	hl,0H
+	ld	de,1H
+	ld	bc,bnksiz*1024-1	; 32k
+	ld	a,0E5h
+	ld	(hl),a
+	ldir
+	pop	af			; restore reg a
+	ret
+
+
+;----------------------------------------------------------------- IBank ------
+;
+;	IBANK
+;
+;	input:
+;		Reg.a:	banknumber
+;	output:
+;		none
+;
+
+ibnkdat:db	2,0,2,0		; bank0
+	db	2,0,2,1		; bank1
+	db	2,0,3,0		; bank2
+	db	2,0,3,1		; bank3
+	db	2,1,3,0		; bank4
+	db	2,1,3,1		; bank5
+	db	3,0,3,0		; bank6
+	db	3,0,3,1		; bank7
+	db	3,1,3,0		; bank8
+	db	3,1,3,1		; bank9
+
+ibank:	push	af		; save registers
+	push	bc
+	push	hl
+
+
+IF capson EQ true
+
+	out	(9),a		; clear caps lock
+	cp	vdboff
+	jr	c,ibank1
+	out	(8),a		; light caps lock
+ibank1:
+
+ENDIF
+
+	
+; get address of bank-select code
+	ld	b,0		; clear reg b
+	ld	c,a
+	sla	c		; *4 (four byte/entry)
+	sla	c
+	ld	hl,ibnkdat
+	add	hl,bc		; hl points to ibankdat[index]
+
+; select LS158 switch (Quad data selector)
+	ld	c,(hl)
+	out	(c),a		; set LS259 O0
+	inc	hl
+	ld	c,(hl)
+	out	(c),a		; set LS259 O1
+
+	out	(4),a		; toggle LS174 strobe (Hex D fliplfop)
+	out	(5),a		;   LS259, O2:  _|~|_  
+	out	(4),a		;
+
+; select LS138 decoder
+	inc	hl
+	ld	c,(hl)
+	out	(c),a		; set LS259 O0
+	inc	hl
+	ld	c,(hl)
+	out	(c),a		; set LS259 O1
+
+	pop	hl		; restore registers
+	pop	bc
+	pop	af
+	ret
+
+;--------------------------------------------------------- End of format ------
+;
+; 	END initialize
+;
+
+initx:	.dephase
+
+
+;--------------------------------------------------------- End of file ------
+;
+;	END OF FILE
+;
+	end
+
+	SUBTTL	Symbol table
+
